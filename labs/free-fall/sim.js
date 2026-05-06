@@ -261,7 +261,8 @@ const ro = new ResizeObserver(() => { resizeAll(); draw(); drawGraphs(); });
 ro.observe(canvas.parentElement);
 
 /* ── Layout helpers ───────────────────────────────────────── */
-const PAD_L = 60, PAD_T = 20, PAD_B = 20, BALL_PX = 10;
+const PAD_L = 60, PAD_T = 20, PAD_B = 20;
+function ballPx() { return Math.max(4, Math.min(10, Math.min(cw, ch) * 0.020)); }
 
 function groundY()     { return ch - PAD_B; }
 function topY()        { return PAD_T; }
@@ -383,21 +384,21 @@ function drawTrail(inst, idx) {
 function drawBall(inst, idx) {
   const x = instanceX(idx);
   const y = ballY(inst.state.h);
-  if (y < -BALL_PX * 4 || y > ch + BALL_PX) return;
+  if (y < -ballPx() * 4 || y > ch + ballPx()) return;
 
   // Glow
-  const glow = ctx.createRadialGradient(x, y, 0, x, y, BALL_PX * 3.2);
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, ballPx() * 3.2);
   glow.addColorStop(0, hexToRgba(inst.color, 0.15));
   glow.addColorStop(1, hexToRgba(inst.color, 0));
-  ctx.beginPath(); ctx.arc(x, y, BALL_PX * 3.2, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.arc(x, y, ballPx() * 3.2, 0, Math.PI * 2);
   ctx.fillStyle = glow; ctx.fill();
 
   // Ball
-  const grad = ctx.createRadialGradient(x - 3, y - 3, 0, x, y, BALL_PX);
+  const grad = ctx.createRadialGradient(x - 3, y - 3, 0, x, y, ballPx());
   grad.addColorStop(0, lighten(inst.color, 0.6));
   grad.addColorStop(0.4, inst.color);
   grad.addColorStop(1, darken(inst.color, 0.5));
-  ctx.beginPath(); ctx.arc(x, y, BALL_PX, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.arc(x, y, ballPx(), 0, Math.PI * 2);
   ctx.fillStyle = grad; ctx.fill();
 
   // Highlight
@@ -413,8 +414,8 @@ function drawVelocityArrow(inst, idx) {
   const len    = Math.min(maxLen, (Math.abs(v) / arrowVRef) * maxLen);
   const dir    = v >= 0 ? -1 : 1; // -1 = up, +1 = down
 
-  const startY = by + dir * (BALL_PX + 2);
-  const tipY   = by + dir * (BALL_PX + 2 + len);
+  const startY = by + dir * (ballPx() + 2);
+  const tipY   = by + dir * (ballPx() + 2 + len);
 
   if (Math.abs(tipY - startY) < 4) return;
   if (dir > 0 && tipY > groundY() - 4) return;
@@ -985,7 +986,7 @@ rebuildCompareList();
 computeViewMaxH();
 computeArrowVRef();
 computeGraphRanges();
-graphArea.style.height = '240px';
+graphArea.style.height = (window.innerWidth < 800 ? 130 : 240) + 'px';
 resizeAll();
 updateReadout();
 draw();

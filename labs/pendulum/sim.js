@@ -289,7 +289,7 @@ function drawTrail(inst) {
 function drawPendulum(inst, dark) {
   const px = pivotX(), py = pivotY();
   const bx = toSX(inst.bobX), by = toSY(inst.bobY);
-  const BALL_R = 10;
+  const BALL_R = Math.max(4, Math.min(10, Math.min(cw, ch) * 0.022));
 
   // Rod
   if (inst.type === 'physical') {
@@ -943,7 +943,7 @@ Lab.initTheme();
 buildControls();
 rebuildCompareList();
 computeGraphRanges();
-graphArea.style.height = '240px';
+graphArea.style.height = (window.innerWidth < 800 ? 130 : 240) + 'px';
 resizeAll();
 updateReadout();
 draw();

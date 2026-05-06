@@ -318,7 +318,8 @@ function drawPendulum(inst, dark) {
   const px = pivotX(), py = pivotY();
   const b1x = toSX(inst.bob1X), b1y = toSY(inst.bob1Y);
   const b2x = toSX(inst.bob2X), b2y = toSY(inst.bob2Y);
-  const R1 = 7, R2 = 9;
+  const R1 = Math.max(3, Math.min(7,  Math.min(cw, ch) * 0.018));
+  const R2 = Math.max(4, Math.min(9,  Math.min(cw, ch) * 0.022));
 
   // Rod 1 (pivot → bob1)
   ctx.strokeStyle = dark ? 'rgba(221,238,255,0.45)' : 'rgba(13,26,38,0.45)';
@@ -984,7 +985,7 @@ Lab.initTheme();
 buildControls();
 rebuildCompareList();
 computeGraphRanges();
-graphArea.style.height = '240px';
+graphArea.style.height = (window.innerWidth < 800 ? 130 : 240) + 'px';
 resizeAll();
 updateReadout();
 draw();

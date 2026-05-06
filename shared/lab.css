@@ -690,7 +690,7 @@ body {
   body { overflow: auto; }
   .lab-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: 340px 1fr;
+    grid-template-rows: clamp(380px, 55vh, 560px) 1fr;
   }
   .lab-panel {
     border-left: none;

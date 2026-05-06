@@ -225,7 +225,7 @@ const ro = new ResizeObserver(() => { resizeAll(); draw(); drawGraphs(); });
 ro.observe(canvas.parentElement);
 
 /* ── Drawing: simulation canvas ───────────────────────────── */
-const BALL_PX = 9;
+function ballPx() { return Math.max(4, Math.min(9, Math.min(cw, ch) * 0.018)); }
 
 function draw() {
   ctx.clearRect(0, 0, cw, ch);
@@ -332,20 +332,20 @@ function drawTrail(inst, idx) {
 
 function drawBall(inst, idx) {
   const x = toSX(inst.state.x), y = toSY(inst.state.y);
-  if (x < PL - BALL_PX * 2 || x > cw + BALL_PX * 2) return;
-  if (y < PT - BALL_PX * 2 || y > ch + BALL_PX * 2) return;
+  if (x < PL - ballPx() * 2 || x > cw + ballPx() * 2) return;
+  if (y < PT - ballPx() * 2 || y > ch + ballPx() * 2) return;
 
-  const glow = ctx.createRadialGradient(x, y, 0, x, y, BALL_PX * 3.2);
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, ballPx() * 3.2);
   glow.addColorStop(0, hexToRgba(inst.color, 0.15));
   glow.addColorStop(1, hexToRgba(inst.color, 0));
-  ctx.beginPath(); ctx.arc(x, y, BALL_PX * 3.2, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.arc(x, y, ballPx() * 3.2, 0, Math.PI * 2);
   ctx.fillStyle = glow; ctx.fill();
 
-  const grad = ctx.createRadialGradient(x - 3, y - 3, 0, x, y, BALL_PX);
+  const grad = ctx.createRadialGradient(x - 3, y - 3, 0, x, y, ballPx());
   grad.addColorStop(0, lighten(inst.color, 0.6));
   grad.addColorStop(0.4, inst.color);
   grad.addColorStop(1, darken(inst.color, 0.5));
-  ctx.beginPath(); ctx.arc(x, y, BALL_PX, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.arc(x, y, ballPx(), 0, Math.PI * 2);
   ctx.fillStyle = grad; ctx.fill();
 
   ctx.beginPath(); ctx.arc(x - 3, y - 3, 3, 0, Math.PI * 2);
@@ -360,10 +360,10 @@ function drawVelocityArrow(inst, idx, dark) {
   const refV0  = Math.max(...activeInstances().map(i => i.v0));
   const len    = (vMag / refV0) * maxLen;
   const arrowColor = dark ? 'rgba(255,180,0,0.85)' : 'rgba(180,120,0,0.85)';
-  const shaftX = ox + Math.cos(angle) * (BALL_PX + 2);
-  const shaftY = oy + Math.sin(angle) * (BALL_PX + 2);
-  const tipX = ox + Math.cos(angle) * (len + BALL_PX + 2);
-  const tipY = oy + Math.sin(angle) * (len + BALL_PX + 2);
+  const shaftX = ox + Math.cos(angle) * (ballPx() + 2);
+  const shaftY = oy + Math.sin(angle) * (ballPx() + 2);
+  const tipX = ox + Math.cos(angle) * (len + ballPx() + 2);
+  const tipY = oy + Math.sin(angle) * (len + ballPx() + 2);
   const headLen = Math.min(8, len * 0.4);
 
   ctx.strokeStyle = arrowColor; ctx.lineWidth = 2;
@@ -976,7 +976,7 @@ buildControls();
 rebuildCompareList();
 computeView();
 computeGraphRanges();
-graphArea.style.height = '240px';
+graphArea.style.height = (window.innerWidth < 800 ? 130 : 240) + 'px';
 resizeAll();
 updateReadout();
 draw();
