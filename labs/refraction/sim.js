@@ -1,0 +1,704 @@
+'use strict';
+
+/* ── Media presets  (Cauchy: n(λ) = A + B/λ²,  λ in μm) ──── */
+const MEDIA = [
+  { name: 'Aria',              n: 1.000, A: 1.0000, B: 0.000000 },
+  { name: 'Acqua',             n: 1.333, A: 1.3199, B: 0.004970 },
+  { name: 'Vetro crown (BK7)', n: 1.520, A: 1.5046, B: 0.004250 },
+  { name: 'Vetro flint (F2)',  n: 1.625, A: 1.5974, B: 0.009590 },
+  { name: 'Diamante',          n: 2.417, A: 2.3761, B: 0.014260 },
+  { name: 'Personalizzato',    n: 1.500, A: 1.5000, B: 0.000000 },
+];
+const CUSTOM = MEDIA.length - 1;
+
+/* Visible spectrum: 9 wavelengths (nm) with display colors */
+const WAVELENGTHS = [
+  { lam: 390, color: '#9400d3' },
+  { lam: 430, color: '#6600ee' },
+  { lam: 460, color: '#1a66ff' },
+  { lam: 490, color: '#0099ff' },
+  { lam: 530, color: '#00cc00' },
+  { lam: 560, color: '#aacc00' },
+  { lam: 590, color: '#ffcc00' },
+  { lam: 620, color: '#ff6600' },
+  { lam: 680, color: '#ff0000' },
+];
+
+/* ── State ───────────────────────────────────────────────── */
+const params = {
+  theta1:     45,
+  preset1:     0,   // Aria
+  preset2:     2,   // BK7
+  preset3:     0,   // Aria
+  n1c: 1.000, n2c: 1.520, n3c: 1.000,   // custom n per preset=CUSTOM
+  d2:      3,       // lastra (scene units 0.5–10)
+  useN3:  false,
+  dispersion: false,
+};
+
+/* ── Canvas ──────────────────────────────────────────────── */
+const canvas      = document.getElementById('simCanvas');
+const ctx         = canvas.getContext('2d');
+const graphCanvas = document.getElementById('graphCanvas');
+const gctx        = graphCanvas.getContext('2d');
+const graphArea   = document.getElementById('graphArea');
+const readoutEl   = document.getElementById('readout');
+let cw = 0, ch = 0, gw = 0, gh = 0;
+
+function resizeCanvases() {
+  const dpr      = window.devicePixelRatio || 1;
+  const parent   = canvas.parentElement;
+  const graphH   = graphArea.offsetHeight;
+  const handleH  = document.getElementById('resizeHandle').offsetHeight;
+  const readoutH = readoutEl.offsetHeight;
+
+  cw = parent.clientWidth;
+  ch = Math.max(100, parent.clientHeight - graphH - readoutH - handleH);
+
+  canvas.width  = cw * dpr; canvas.height = ch * dpr;
+  canvas.style.width  = cw + 'px'; canvas.style.height = ch + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  gw = graphArea.clientWidth; gh = graphArea.clientHeight;
+  graphCanvas.width  = gw * dpr; graphCanvas.height = gh * dpr;
+  graphCanvas.style.width  = gw + 'px'; graphCanvas.style.height = gh + 'px';
+  gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/* ── Physics ─────────────────────────────────────────────── */
+function cauchyN(m, lam_nm) {
+  if (m.B === 0) return m.A;
+  const u = lam_nm / 1000;   // nm → μm
+  return m.A + m.B / (u * u);
+}
+
+/* Returns refractive index for given preset+customN at given λ (null = standard) */
+function getN(presetIdx, customN, lam_nm) {
+  if (presetIdx === CUSTOM) return customN;
+  const m = MEDIA[presetIdx];
+  if (lam_nm == null) return m.n;
+  return cauchyN(m, lam_nm);
+}
+
+/* Ray trace result: { tir12, tir23, t1, t2, t3, n1, n2, n3 } (angles in rad) */
+function traceRay(theta1_deg, lam_nm) {
+  const t1    = theta1_deg * Math.PI / 180;
+  const n1    = getN(params.preset1, params.n1c, lam_nm);
+  const n2    = getN(params.preset2, params.n2c, lam_nm);
+  const n3eff = params.useN3 ? getN(params.preset3, params.n3c, lam_nm) : n1;
+
+  const sinT2 = n1 * Math.sin(t1) / n2;
+  if (sinT2 >= 1) return { tir12: true, t1, n1, n2, n3: n3eff };
+  const t2 = Math.asin(sinT2);
+
+  const sinT3 = n2 * Math.sin(t2) / n3eff;
+  if (sinT3 >= 1) return { tir12: false, tir23: true, t1, t2, n1, n2, n3: n3eff };
+
+  return { tir12: false, tir23: false, t1, t2, t3: Math.asin(sinT3), n1, n2, n3: n3eff };
+}
+
+/* ── Scene geometry ──────────────────────────────────────── */
+function y1Int() { return ch * 0.30; }
+function y2Int() { return y1Int() + ch * Math.min(params.d2 / 10, 0.42); }
+function hitX()  { return cw * 0.50; }
+
+/* ── Helpers ─────────────────────────────────────────────── */
+function hexToRgba(hex, a) {
+  const r = parseInt(hex.slice(1,3), 16),
+        g = parseInt(hex.slice(3,5), 16),
+        b = parseInt(hex.slice(5,7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+const MCOLORS = ['#4d9fff', '#00d4ff', '#2ecc71'];
+
+/* ── Drawing: scene ──────────────────────────────────────── */
+function drawScene() {
+  const dark = document.documentElement.dataset.theme !== 'light';
+  ctx.clearRect(0, 0, cw, ch);
+
+  const y1 = y1Int(), y2 = y2Int(), hx = hitX();
+  const incLen = y1 * 0.92;   // length of incident ray above interface
+
+  /* Background fills */
+  [
+    { x:0, y:0,  w:cw, h:y1,      col: MCOLORS[0], a: dark ? 0.09 : 0.06 },
+    { x:0, y:y1, w:cw, h:y2-y1,   col: MCOLORS[1], a: dark ? 0.15 : 0.10 },
+    { x:0, y:y2, w:cw, h:ch-y2,   col: params.useN3 ? MCOLORS[2] : MCOLORS[0], a: dark ? 0.09 : 0.06 },
+  ].forEach(r => {
+    ctx.fillStyle = hexToRgba(r.col, r.a);
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  });
+
+  /* Grid */
+  ctx.strokeStyle = dark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.045)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= cw; x += 50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,ch); ctx.stroke(); }
+  for (let y = 0; y <= ch; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cw,y); ctx.stroke(); }
+
+  /* Interface lines */
+  ctx.strokeStyle = dark ? 'rgba(200,220,255,0.28)' : 'rgba(50,80,120,0.22)';
+  ctx.lineWidth = 1.5; ctx.setLineDash([]);
+  [y1, y2].forEach(y => { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cw,y); ctx.stroke(); });
+
+  /* Normal (dashed) at hit point */
+  ctx.strokeStyle = dark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.16)';
+  ctx.lineWidth = 1; ctx.setLineDash([6,5]);
+  ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, y2 + 24); ctx.stroke();
+  ctx.setLineDash([]);
+
+  /* Draw rays */
+  if (params.dispersion) {
+    WAVELENGTHS.forEach(w => drawRay(traceRay(params.theta1, w.lam), w.color, hx, y1, y2, incLen, 0.72, dark));
+  } else {
+    const ray = traceRay(params.theta1, null);
+    drawRay(ray, '#00d4ff', hx, y1, y2, incLen, 1.0, dark);
+    drawAngles(ray, hx, y1, y2, dark);
+  }
+
+  drawLabels(y1, y2, dark);
+  updateReadout();
+}
+
+/* Draw a single ray path; lw = line width derived from alpha */
+function drawRay(ray, col, hx, y1, y2, incLen, alpha, dark) {
+  if (!ray) return;
+  const lw     = alpha >= 1 ? 2.0 : 1.4;
+  const slabH  = y2 - y1;
+
+  /* Incident ray: upper-left → hit point */
+  const ix0 = hx - Math.tan(ray.t1) * incLen;
+  arrowLine(ix0, y1 - incLen, hx, y1, col, alpha, 0.55, lw);
+
+  if (ray.tir12) {
+    /* TIR at 1→2: reflected ray going upper-right */
+    arrowLine(hx, y1, hx + Math.tan(ray.t1) * incLen, y1 - incLen, col, alpha * 0.70, 0.55, lw);
+    return;
+  }
+
+  /* Ray inside slab (1→2 to 2→3 hit) */
+  const hx2 = hx + Math.tan(ray.t2) * slabH;
+  arrowLine(hx, y1, hx2, y2, col, alpha, 0.50, lw);
+
+  /* Normal at second interface (monochromatic only) */
+  if (alpha >= 1) {
+    const nExt = Math.min(ch * 0.22, slabH);
+    ctx.strokeStyle = dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.14)';
+    ctx.lineWidth = 1; ctx.setLineDash([6,5]);
+    ctx.beginPath(); ctx.moveTo(hx2, y2 - nExt); ctx.lineTo(hx2, y2 + nExt); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (ray.tir23) {
+    /* TIR at 2→3: reflect back through slab, exit upper-right */
+    const rxUp = hx2 - Math.tan(ray.t2) * slabH;   // == hx
+    arrowLine(hx2, y2, rxUp, y1, col, alpha * 0.65, 0.50, lw);
+    arrowLine(rxUp, y1, rxUp + Math.tan(ray.t1) * incLen, y1 - incLen, col, alpha * 0.50, 0.55, lw);
+    return;
+  }
+
+  /* Exit ray below slab */
+  const exitH = ch - y2;
+  arrowLine(hx2, y2, hx2 + Math.tan(ray.t3) * exitH, y2 + exitH, col, alpha, 0.50, lw);
+}
+
+function arrowLine(x1, y1, x2, y2, col, alpha, arrowPos, lw) {
+  ctx.strokeStyle = hexToRgba(col, alpha); ctx.lineWidth = lw; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
+  const ax = x1 + (x2-x1)*arrowPos, ay = y1 + (y2-y1)*arrowPos;
+  const ang = Math.atan2(y2-y1, x2-x1), hl = 9;
+  ctx.beginPath();
+  ctx.moveTo(ax - Math.cos(ang-0.42)*hl, ay - Math.sin(ang-0.42)*hl);
+  ctx.lineTo(ax, ay);
+  ctx.lineTo(ax - Math.cos(ang+0.42)*hl, ay - Math.sin(ang+0.42)*hl);
+  ctx.stroke();
+}
+
+/*
+ * Angle arcs: angles measured from the interface normal (vertical).
+ * In canvas coords (y down), upward normal = -π/2.
+ * Incident arc: ctx.arc(hx, y1, r,  -π/2, -π/2 - t1, CCW=true)
+ * Refracted arc: ctx.arc(hx, y1, r,  π/2,  π/2 - t2, CCW=true)
+ */
+function drawAngles(ray, hx, y1, y2, dark) {
+  if (!ray) return;
+  const textCol = dark ? '#ddeeff' : '#0d1a26';
+  const arcR    = Math.max(22, Math.min(44, Math.min(cw, ch) * 0.07));
+  const fSize   = Math.max(11, Math.min(13, cw * 0.026));
+  ctx.font = `bold ${fSize}px 'Space Mono', monospace`;
+  ctx.textAlign = 'center'; ctx.lineWidth = 1.5;
+
+  function arc(cx, cy, r, a0, a1, col) {
+    ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1, true); ctx.stroke();
+    const mid = a0 + (a1 - a0) * 0.5;
+    ctx.fillStyle = textCol;
+    ctx.fillText(
+      `θ=${(Math.abs(a0 - a1) * 180/Math.PI).toFixed(1)}°`,
+      cx + Math.cos(mid) * (r + 18),
+      cy + Math.sin(mid) * (r + 18)
+    );
+  }
+
+  /* θ₁ — incident, above interface */
+  arc(hx, y1, arcR, -Math.PI/2, -Math.PI/2 - ray.t1,
+      dark ? 'rgba(255,200,60,0.8)' : 'rgba(200,130,0,0.85)');
+
+  if (ray.tir12) return;
+
+  /* θ₂ — refracted, below interface 1 */
+  arc(hx, y1, arcR, Math.PI/2, Math.PI/2 - ray.t2,
+      dark ? 'rgba(46,204,113,0.8)' : 'rgba(30,150,80,0.85)');
+
+  if (!params.useN3 || ray.tir23) return;
+
+  /* θ₃ — exit, below interface 2 */
+  const hx2 = hx + Math.tan(ray.t2) * (y2 - y1);
+  arc(hx2, y2, arcR, Math.PI/2, Math.PI/2 - ray.t3,
+      dark ? 'rgba(255,180,0,0.8)' : 'rgba(200,120,0,0.85)');
+}
+
+function drawLabels(y1, y2, dark) {
+  const col   = dark ? 'rgba(180,215,255,0.60)' : 'rgba(20,50,90,0.60)';
+  const fSize = Math.max(11, Math.min(13, cw * 0.022));
+  ctx.fillStyle = col;
+  ctx.font = `600 ${fSize}px 'DM Sans', sans-serif`;
+  ctx.textAlign = 'left';
+  const lx = 10;
+  const n1 = getN(params.preset1, params.n1c, null);
+  const n2 = getN(params.preset2, params.n2c, null);
+  const n3 = getN(params.preset3, params.n3c, null);
+
+  ctx.fillText(`${MEDIA[params.preset1].name}  n₁ = ${n1.toFixed(3)}`, lx, y1 * 0.50 + fSize * 0.4);
+  ctx.fillText(`${MEDIA[params.preset2].name}  n₂ = ${n2.toFixed(3)}`, lx, y1 + (y2-y1) * 0.50 + fSize * 0.4);
+  const m3name = params.useN3 ? MEDIA[params.preset3].name : MEDIA[params.preset1].name;
+  const n3val  = params.useN3 ? n3 : n1;
+  const n3key  = params.useN3 ? 'n₃' : 'n₁';
+  ctx.fillText(`${m3name}  ${n3key} = ${n3val.toFixed(3)}`, lx, y2 + (ch-y2) * 0.50 + fSize * 0.4);
+}
+
+/* ── Readout ─────────────────────────────────────────────── */
+function updateReadout() {
+  const ray = traceRay(params.theta1, null);
+  const n1  = getN(params.preset1, params.n1c, null);
+  const n2  = getN(params.preset2, params.n2c, null);
+  const n3  = params.useN3 ? getN(params.preset3, params.n3c, null) : n1;
+
+  const items = [{ label: 'θ₁', value: `${params.theta1.toFixed(1)}°` }];
+
+  if (ray.tir12) {
+    items.push({ label: '1→2', value: 'RFT totale ⚡' });
+  } else {
+    items.push({ label: 'θ₂', value: `${(ray.t2*180/Math.PI).toFixed(2)}°` });
+    if (params.useN3) {
+      ray.tir23
+        ? items.push({ label: '2→3', value: 'RFT totale ⚡' })
+        : items.push({ label: 'θ₃', value: `${(ray.t3*180/Math.PI).toFixed(2)}°` });
+    }
+    if (!ray.tir23) {
+      const dp = (y2Int() - y1Int()) * (Math.tan(ray.t1) - Math.tan(ray.t2));
+      items.push({ label: 'Scostamento', value: `${(Math.abs(dp)*100/cw).toFixed(1)} %` });
+    }
+  }
+
+  if (n1 > n2) items.push({ label: 'θ_c (1→2)', value: `${(Math.asin(n2/n1)*180/Math.PI).toFixed(1)}°` });
+  if (params.useN3 && n2 > n3) items.push({ label: 'θ_c (2→3)', value: `${(Math.asin(n3/n2)*180/Math.PI).toFixed(1)}°` });
+
+  readoutEl.innerHTML = items.map(it =>
+    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+  ).join('');
+}
+
+/* ── Graphs ──────────────────────────────────────────────── */
+function drawGraphs() {
+  if (!gw || !gh) return;
+  const dark = document.documentElement.dataset.theme !== 'light';
+  gctx.clearRect(0, 0, gw, gh);
+
+  const pw = Math.floor(gw / 3);
+  drawAnglePanel(0,    0, pw,        gh, dark, 1);
+  drawAnglePanel(pw,   0, pw,        gh, dark, 2);
+  params.dispersion
+    ? drawNPanel  (pw*2, 0, gw-pw*2, gh, dark)
+    : drawDevPanel(pw*2, 0, gw-pw*2, gh, dark);
+}
+
+/* Shared panel setup: background + grid, returns inner rect */
+const GP = { l:42, r:10, t:20, b:26 };
+function panelBase(ox, oy, pw, ph, dark) {
+  gctx.fillStyle = dark ? '#0b1018' : '#f0f2f5';
+  gctx.fillRect(ox, oy, pw, ph);
+  const l = ox+GP.l, t = oy+GP.t, iW = pw-GP.l-GP.r, iH = ph-GP.t-GP.b;
+  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  gctx.lineWidth = 1;
+  for (let i=0; i<=4; i++) {
+    const x=l+(i/4)*iW; gctx.beginPath(); gctx.moveTo(x,t); gctx.lineTo(x,t+iH); gctx.stroke();
+    const y=t+(i/4)*iH; gctx.beginPath(); gctx.moveTo(l,y); gctx.lineTo(l+iW,y); gctx.stroke();
+  }
+  if (ox > 0) {
+    gctx.strokeStyle = dark ? 'rgba(0,212,255,0.07)' : 'rgba(0,100,160,0.07)';
+    gctx.beginPath(); gctx.moveTo(ox,oy); gctx.lineTo(ox,oy+ph); gctx.stroke();
+  }
+  return { l, t, iW, iH };
+}
+
+function panelTitle(ox, oy, pw, title, dark) {
+  gctx.fillStyle = dark ? 'rgba(200,220,255,0.50)' : 'rgba(40,60,100,0.50)';
+  gctx.font = `10px 'Space Mono', monospace`;
+  gctx.textAlign = 'center';
+  gctx.fillText(title, ox + pw/2, oy + 13);
+}
+
+function xAxisLabels(l, t, iW, iH, dark) {
+  const textC = dark ? '#6b8099' : '#4a6278';
+  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
+  gctx.textAlign = 'center';
+  gctx.fillText('0°',  l,        t+iH+16);
+  gctx.fillText('45°', l+iW/2,   t+iH+16);
+  gctx.fillText('90°', l+iW,     t+iH+16);
+  gctx.textAlign = 'right';
+  gctx.fillText('0°',  l-4, t+iH+4);
+  gctx.fillText('90°', l-4, t+4);
+}
+
+/* Panel 1: θ₂ vs θ₁  /  Panel 2: θ_exit vs θ₁ */
+function drawAnglePanel(ox, oy, pw, ph, dark, pass) {
+  const { l, t, iW, iH } = panelBase(ox, oy, pw, ph, dark);
+  const axis = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
+
+  const n1 = getN(params.preset1, params.n1c, null);
+  const n2 = getN(params.preset2, params.n2c, null);
+  const n3 = params.useN3 ? getN(params.preset3, params.n3c, null) : n1;
+
+  /* TIR zone shading */
+  let tirDeg = null;
+  if (pass === 1 && n1 > n2) {
+    tirDeg = Math.asin(n2/n1) * 180/Math.PI;
+  } else if (pass === 2 && n2 > n3) {
+    const sinT1c = n3 / n1;
+    if (sinT1c < 1) tirDeg = Math.asin(sinT1c) * 180/Math.PI;
+  }
+  if (tirDeg !== null) {
+    const cx = l + (tirDeg/90)*iW;
+    gctx.fillStyle = dark ? 'rgba(255,71,87,0.12)' : 'rgba(255,71,87,0.09)';
+    gctx.fillRect(cx, t, l+iW-cx, iH);
+    gctx.strokeStyle = dark ? 'rgba(255,71,87,0.50)' : 'rgba(200,50,60,0.40)';
+    gctx.lineWidth = 1; gctx.setLineDash([4,3]);
+    gctx.beginPath(); gctx.moveTo(cx,t); gctx.lineTo(cx,t+iH); gctx.stroke();
+    gctx.setLineDash([]);
+  }
+
+  /* Snell curve */
+  const curveCol = pass === 1 ? '#00d4ff' : '#2ecc71';
+  gctx.strokeStyle = curveCol; gctx.lineWidth = 1.8; gctx.beginPath();
+  let first = true;
+  for (let deg = 0; deg <= 89.5; deg += 0.5) {
+    const s1  = Math.sin(deg * Math.PI/180);
+    const sT2 = n1 * s1 / n2;
+    if (sT2 >= 1) break;
+    const t2_ = Math.asin(sT2);
+    let refDeg;
+    if (pass === 1) {
+      refDeg = t2_ * 180/Math.PI;
+    } else {
+      const sT3 = n2 * Math.sin(t2_) / n3;
+      if (sT3 >= 1) break;
+      refDeg = Math.asin(sT3) * 180/Math.PI;
+    }
+    const x = l + (deg/90)*iW;
+    const y = t + iH - (refDeg/90)*iH;
+    first ? (gctx.moveTo(x,y), first=false) : gctx.lineTo(x,y);
+  }
+  gctx.stroke();
+
+  /* Current θ₁ crosshair */
+  const curX = l + (params.theta1/90)*iW;
+  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
+  gctx.lineWidth = 1; gctx.setLineDash([3,3]);
+  gctx.beginPath(); gctx.moveTo(curX,t); gctx.lineTo(curX,t+iH); gctx.stroke();
+  gctx.setLineDash([]);
+
+  const ray = traceRay(params.theta1, null);
+  const curRefDeg = pass===1
+    ? (ray.tir12 ? null : ray.t2*180/Math.PI)
+    : (ray.tir12 || ray.tir23 ? null : ray.t3*180/Math.PI);
+  if (curRefDeg !== null) {
+    const curY = t + iH - (curRefDeg/90)*iH;
+    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
+    gctx.setLineDash([3,3]);
+    gctx.beginPath(); gctx.moveTo(l,curY); gctx.lineTo(l+iW,curY); gctx.stroke();
+    gctx.setLineDash([]);
+    gctx.fillStyle = curveCol;
+    gctx.beginPath(); gctx.arc(curX, curY, 4, 0, Math.PI*2); gctx.fill();
+  }
+
+  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
+  xAxisLabels(l, t, iW, iH, dark);
+  panelTitle(ox, oy, pw,
+    pass===1 ? 'θ₂ vs θ₁  (n₁→n₂)' : (params.useN3 ? 'θ₃ vs θ₁  (n₂→n₃)' : 'θ_exit vs θ₁'), dark);
+}
+
+/* Panel 3a: n(λ) curves — dispersion mode */
+function drawNPanel(ox, oy, pw, ph, dark) {
+  const { l, t, iW, iH } = panelBase(ox, oy, pw, ph, dark);
+  const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
+  const textC = dark ? '#6b8099' : '#4a6278';
+
+  const presets   = [params.preset1, params.preset2, ...(params.useN3 ? [params.preset3] : [])];
+  const customNs  = [params.n1c, params.n2c, params.n3c];
+  const lamMin = WAVELENGTHS[0].lam, lamMax = WAVELENGTHS[WAVELENGTHS.length-1].lam;
+
+  /* n range */
+  let nMin = Infinity, nMax = -Infinity;
+  presets.forEach((pi, mi) => {
+    WAVELENGTHS.forEach(w => {
+      const n = pi === CUSTOM ? customNs[mi] : cauchyN(MEDIA[pi], w.lam);
+      if (n < nMin) nMin = n; if (n > nMax) nMax = n;
+    });
+  });
+  const span = Math.max(nMax - nMin, 0.05);
+  const nLo = nMin - span*0.18, nHi = nMax + span*0.18;
+
+  /* Spectrum strip */
+  WAVELENGTHS.forEach((w, i) => {
+    const x1 = l + ((w.lam-lamMin)/(lamMax-lamMin))*iW;
+    const x2 = i+1 < WAVELENGTHS.length
+      ? l + ((WAVELENGTHS[i+1].lam-lamMin)/(lamMax-lamMin))*iW : l+iW;
+    gctx.fillStyle = hexToRgba(w.color, 0.65);
+    gctx.fillRect(x1, t+iH+2, x2-x1, 5);
+  });
+
+  /* n(λ) curves */
+  presets.forEach((pi, mi) => {
+    gctx.strokeStyle = MCOLORS[mi]; gctx.lineWidth = 2; gctx.setLineDash([]);
+    gctx.beginPath();
+    WAVELENGTHS.forEach((w, i) => {
+      const n = pi === CUSTOM ? customNs[mi] : cauchyN(MEDIA[pi], w.lam);
+      const x = l + ((w.lam-lamMin)/(lamMax-lamMin))*iW;
+      const y = t + iH - ((n-nLo)/(nHi-nLo))*iH;
+      i===0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
+    });
+    gctx.stroke();
+  });
+
+  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
+  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
+  gctx.textAlign = 'center';
+  gctx.fillText(`${lamMin}`, l, t+iH+16);
+  gctx.fillText(`${Math.round((lamMin+lamMax)/2)}`, l+iW/2, t+iH+16);
+  gctx.fillText(`${lamMax} nm`, l+iW, t+iH+16);
+  gctx.textAlign = 'right';
+  gctx.fillText(nLo.toFixed(3), l-4, t+iH+4);
+  gctx.fillText(nHi.toFixed(3), l-4, t+4);
+  panelTitle(ox, oy, pw, 'n(λ) — dispersione', dark);
+}
+
+/* Panel 3b: deviation |θ₁−θ₂| or |θ₁−θ₃| vs θ₁ — monochromatic mode */
+function drawDevPanel(ox, oy, pw, ph, dark) {
+  const { l, t, iW, iH } = panelBase(ox, oy, pw, ph, dark);
+  const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
+  const textC = dark ? '#6b8099' : '#4a6278';
+
+  const n1 = getN(params.preset1, params.n1c, null);
+  const n2 = getN(params.preset2, params.n2c, null);
+  const n3 = params.useN3 ? getN(params.preset3, params.n3c, null) : n1;
+
+  const pts = [];
+  for (let deg = 0; deg <= 89.5; deg += 0.5) {
+    const sT2 = n1 * Math.sin(deg*Math.PI/180) / n2;
+    if (sT2 >= 1) break;
+    const t2_ = Math.asin(sT2);
+    if (params.useN3) {
+      const sT3 = n2 * Math.sin(t2_) / n3;
+      if (sT3 >= 1) break;
+      pts.push({ deg, dev: Math.abs(deg - Math.asin(sT3)*180/Math.PI) });
+    } else {
+      pts.push({ deg, dev: Math.abs(deg - t2_*180/Math.PI) });
+    }
+  }
+  const devMax = Math.max(pts.reduce((m,p) => Math.max(m,p.dev), 0), 1);
+
+  gctx.strokeStyle = '#ffb400'; gctx.lineWidth = 1.8; gctx.beginPath();
+  pts.forEach(({ deg, dev }, i) => {
+    const x = l + (deg/90)*iW, y = t + iH - (dev/devMax)*iH;
+    i===0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
+  });
+  gctx.stroke();
+
+  const curX = l + (params.theta1/90)*iW;
+  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
+  gctx.lineWidth = 1; gctx.setLineDash([3,3]);
+  gctx.beginPath(); gctx.moveTo(curX,t); gctx.lineTo(curX,t+iH); gctx.stroke();
+  gctx.setLineDash([]);
+
+  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
+  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
+  gctx.textAlign = 'center';
+  gctx.fillText('0°', l, t+iH+16); gctx.fillText('45°', l+iW/2, t+iH+16); gctx.fillText('90°', l+iW, t+iH+16);
+  gctx.textAlign = 'right';
+  gctx.fillText('0°', l-4, t+iH+4); gctx.fillText(`${devMax.toFixed(0)}°`, l-4, t+4);
+  panelTitle(ox, oy, pw,
+    params.useN3 ? '|θ₁−θ₃| deviazione' : '|θ₁−θ₂| rifrazione', dark);
+}
+
+/* ── Controls ────────────────────────────────────────────── */
+function buildControls() {
+  const el = document.getElementById('controls');
+  el.innerHTML = '';
+
+  /* ---- Fascio incidente ---- */
+  const sec0 = Lab.Section('Fascio incidente');
+  sec0.add(Lab.SliderInput({ label: 'Angolo di incidenza θ₁', min:0, max:89, step:0.5,
+    value: params.theta1, unit: '°',
+    hint: 'misurato dalla normale all\'interfaccia',
+    onChange(v) { params.theta1 = v; requestRedraw(); },
+  }));
+  el.appendChild(sec0.el);
+
+  /* ---- Mezzo 1 ---- */
+  const sec1 = Lab.Section('Mezzo 1 (sopra)');
+  const n1Sub = Lab.SubPanel();
+  n1Sub.add(Lab.SliderInput({ label:'Indice n₁', min:1.0, max:3.5, step:0.001,
+    value: params.n1c, unit:'',
+    onChange(v) { params.n1c = v; requestRedraw(); },
+  }));
+  if (params.preset1 !== CUSTOM) n1Sub.hide();
+  sec1.add(Lab.RadioGroup({ label:'n1', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
+    value: params.preset1,
+    onChange(v) {
+      params.preset1 = v;
+      if (v < CUSTOM) { params.n1c = MEDIA[v].n; n1Sub.hide(); } else n1Sub.show();
+      requestRedraw();
+    },
+  }));
+  sec1.add(n1Sub);
+  el.appendChild(sec1.el);
+
+  /* ---- Mezzo 2 ---- */
+  const sec2 = Lab.Section('Mezzo 2 (lastra)');
+  const n2Sub = Lab.SubPanel();
+  n2Sub.add(Lab.SliderInput({ label:'Indice n₂', min:1.0, max:3.5, step:0.001,
+    value: params.n2c, unit:'',
+    onChange(v) { params.n2c = v; requestRedraw(); },
+  }));
+  if (params.preset2 !== CUSTOM) n2Sub.hide();
+  sec2.add(Lab.RadioGroup({ label:'n2', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
+    value: params.preset2,
+    onChange(v) {
+      params.preset2 = v;
+      if (v < CUSTOM) { params.n2c = MEDIA[v].n; n2Sub.hide(); } else n2Sub.show();
+      requestRedraw();
+    },
+  }));
+  sec2.add(n2Sub);
+  sec2.add(Lab.SliderInput({ label:'Spessore lastra', min:0.5, max:10, step:0.1,
+    value: params.d2, unit:' u',
+    hint: 'profondità della lastra in unità di scena',
+    onChange(v) { params.d2 = v; requestRedraw(); },
+  }));
+  el.appendChild(sec2.el);
+
+  /* ---- Terzo mezzo ---- */
+  const sec3 = Lab.Section('Terzo mezzo');
+  const n3Panel = Lab.SubPanel();
+  if (!params.useN3) n3Panel.hide();
+
+  const n3Sub = Lab.SubPanel();
+  n3Sub.add(Lab.SliderInput({ label:'Indice n₃', min:1.0, max:3.5, step:0.001,
+    value: params.n3c, unit:'',
+    onChange(v) { params.n3c = v; requestRedraw(); },
+  }));
+  if (params.preset3 !== CUSTOM) n3Sub.hide();
+
+  n3Panel.add(Lab.RadioGroup({ label:'n3', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
+    value: params.preset3,
+    onChange(v) {
+      params.preset3 = v;
+      if (v < CUSTOM) { params.n3c = MEDIA[v].n; n3Sub.hide(); } else n3Sub.show();
+      requestRedraw();
+    },
+  }));
+  n3Panel.add(n3Sub);
+
+  sec3.add(Lab.Toggle({ label:'Aggiungi terzo mezzo', value: params.useN3,
+    onChange(v) { params.useN3 = v; v ? n3Panel.show() : n3Panel.hide(); requestRedraw(); },
+  }));
+  sec3.add(n3Panel);
+  el.appendChild(sec3.el);
+
+  /* ---- Visualizzazione ---- */
+  const secV = Lab.Section('Visualizzazione');
+  secV.add(Lab.Toggle({ label:'Dispersione cromatica', value: params.dispersion,
+    onChange(v) { params.dispersion = v; requestRedraw(); },
+  }));
+  const hint = document.createElement('div');
+  hint.className = 'ctrl-hint'; hint.style.padding = '2px 12px 8px';
+  hint.textContent = 'Legge di Cauchy n(λ): mostra la separazione spettrale del fascio';
+  secV.el.appendChild(hint);
+  el.appendChild(secV.el);
+}
+
+/* ── Redraw ──────────────────────────────────────────────── */
+let _pending = false;
+function requestRedraw() {
+  if (!_pending) {
+    _pending = true;
+    requestAnimationFrame(() => { _pending = false; drawScene(); drawGraphs(); });
+  }
+}
+
+/* ── Resize handle ───────────────────────────────────────── */
+function initResizeHandle() {
+  const handle = document.getElementById('resizeHandle');
+  let drag = false, startY = 0, startH = 0;
+  handle.addEventListener('mousedown', e => {
+    drag = true; startY = e.clientY; startH = graphArea.offsetHeight;
+    document.body.style.userSelect = 'none';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    graphArea.style.height = Math.max(80, Math.min(500, startH + (startY - e.clientY))) + 'px';
+    resizeCanvases(); requestRedraw();
+  });
+  document.addEventListener('mouseup', () => { if (drag) { drag = false; document.body.style.userSelect = ''; } });
+}
+
+/* ── Fullscreen ──────────────────────────────────────────── */
+function initFullscreen() {
+  document.getElementById('btnFullscreen').addEventListener('click', () => {
+    !document.fullscreenElement
+      ? (graphArea.requestFullscreen?.() ?? graphArea.webkitRequestFullscreen?.())
+      : (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.());
+  });
+  document.addEventListener('fullscreenchange', () => { resizeCanvases(); requestRedraw(); });
+}
+
+/* ── Theme observer ──────────────────────────────────────── */
+new MutationObserver(() => requestRedraw())
+  .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+/* ── Init ────────────────────────────────────────────────── */
+function init() {
+  Lab.initTheme();
+  buildControls();
+  graphArea.style.height = (window.innerWidth < 800 ? 130 : 240) + 'px';
+  resizeCanvases();
+  requestRedraw();
+
+  new ResizeObserver(() => { resizeCanvases(); requestRedraw(); }).observe(canvas.parentElement);
+  initResizeHandle();
+  initFullscreen();
+
+  document.getElementById('btnPlay').addEventListener('click', requestRedraw);
+  document.getElementById('btnReset').addEventListener('click', () => {
+    params.theta1 = 45;
+    params.preset1 = 0;  params.n1c = 1.000;
+    params.preset2 = 2;  params.n2c = 1.520;
+    params.preset3 = 0;  params.n3c = 1.000;
+    params.d2 = 3; params.useN3 = false; params.dispersion = false;
+    buildControls();
+    requestRedraw();
+  });
+}
+
+init();

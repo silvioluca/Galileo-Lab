@@ -84,11 +84,20 @@ const LABS = [
   {
     id: 'refraction',
     name: 'Rifrazione della Luce',
-    desc: 'Esplora la legge di Snell alla variare degli indici di rifrazione e dell\'angolo di incidenza.',
+    desc: 'Esplora la legge di Snell al variare degli indici di rifrazione e dell\'angolo di incidenza. Visualizza la dispersione cromatica con la legge di Cauchy.',
     topic: 'ottica',
-    status: 'soon',
+    status: 'stable',
     icon: '🔬',
-    url: null,
+    url: 'labs/refraction/',
+  },
+  {
+    id: 'prism',
+    name: 'Prisma Ottico',
+    desc: 'Studia la rifrazione e la dispersione della luce attraverso prismi di diversa forma. Osserva la separazione spettrale con la legge di Cauchy.',
+    topic: 'ottica',
+    status: 'stable',
+    icon: '🔷',
+    url: 'labs/prism/',
   },
   {
     id: 'standing-waves',
