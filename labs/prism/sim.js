@@ -163,12 +163,40 @@ function beamStart(faceMidCanvas, dir) {
   return { x: 0, y: faceMidCanvas.y - t * dir.y };
 }
 
+/* ── Unified shape descriptor ────────────────────────────── */
+/* Returns a shape object in canvas coordinates with entry face info.
+   shape.type = 'poly' | 'circle'
+   shape.entryMid  = canvas-coord point where beam aims
+   shape.entryInN  = inward normal at entry (unit vector)              */
+function getShapeCanvas() {
+  const cx = prismCX(), cy = prismCY();
+  if (params.prismType === 'circle') {
+    const r = prismSize() * 0.55;
+    return {
+      type: 'circle',
+      center: { x: cx, y: cy },
+      radius: r,
+      entryMid: { x: cx - r, y: cy },
+      entryInN: { x: 1, y: 0 },
+    };
+  }
+  const localPoly = getPrismVertices();
+  const verts = localPoly.map(v => ({ x: v.x + cx, y: v.y + cy }));
+  const ef = entryFace(localPoly);
+  return {
+    type: 'poly',
+    verts,
+    entryMid: { x: ef.mid.x + cx, y: ef.mid.y + cy },
+    entryInN: ef.inN,
+  };
+}
+
 /* ── Ray-polygon intersection ────────────────────────────── */
-function rayPolyHit(pos, dir, poly) {
+function rayPolyHit(pos, dir, verts) {
   let minT = Infinity, result = null;
-  const n = poly.length;
+  const n = verts.length;
   for (let i = 0; i < n; i++) {
-    const v1 = poly[i], v2 = poly[(i+1)%n];
+    const v1 = verts[i], v2 = verts[(i+1)%n];
     const e    = V.sub(v2, v1);
     const denom = dir.x*e.y - dir.y*e.x;
     if (Math.abs(denom) < 1e-10) continue;
@@ -181,6 +209,30 @@ function rayPolyHit(pos, dir, poly) {
     }
   }
   return result;
+}
+
+/* ── Ray-circle intersection ─────────────────────────────── */
+function rayCircleHit(pos, dir, center, radius) {
+  const oc  = V.sub(pos, center);
+  const bh  = V.dot(dir, oc);              // b/2 in quadratic
+  const c   = V.dot(oc, oc) - radius * radius;
+  const disc = bh * bh - c;
+  if (disc < 0) return null;
+  const sqrtD = Math.sqrt(disc);
+  const t1 = -bh - sqrtD, t2 = -bh + sqrtD;
+  let t;
+  if      (t1 > 1e-5) t = t1;
+  else if (t2 > 1e-5) t = t2;
+  else return null;
+  const point = V.add(pos, V.scale(dir, t));
+  const outN  = V.norm(V.sub(point, center));   // radially outward
+  return { point, outN, t };
+}
+
+/* Dispatch hit test to polygon or circle */
+function hitShape(pos, dir, shape) {
+  if (shape.type === 'poly') return rayPolyHit(pos, dir, shape.verts);
+  return rayCircleHit(pos, dir, shape.center, shape.radius);
 }
 
 /* ── Snell's law refraction ──────────────────────────────── */
@@ -214,7 +266,7 @@ function clipToCanvas(pos, dir) {
 
 /* ── Full ray trace ──────────────────────────────────────── */
 /* Returns array of segments: [{from, to, inside, tir}]       */
-function traceRay(startPos, dir, poly, nPrism, nMedium) {
+function traceRay(startPos, dir, shape, nPrism, nMedium) {
   const segs   = [];
   let pos      = startPos;
   let d        = V.norm(dir);
@@ -222,7 +274,7 @@ function traceRay(startPos, dir, poly, nPrism, nMedium) {
   let n_cur    = nMedium;
 
   for (let bounce = 0; bounce < 10; bounce++) {
-    const hit = rayPolyHit(pos, d, poly);
+    const hit = hitShape(pos, d, shape);
     if (!hit) {
       segs.push({ from: pos, to: clipToCanvas(pos, d), inside, tir: false });
       break;
@@ -263,37 +315,31 @@ function drawScene() {
   const dark = document.documentElement.dataset.theme !== 'light';
   ctx.clearRect(0, 0, cw, ch);
 
-  const localPoly = getPrismVertices();
-  const cx = prismCX(), cy = prismCY();
-  const poly = localPoly.map(v => ({ x: v.x + cx, y: v.y + cy }));
-
-  const ef  = entryFace(localPoly);
-  const efC = { x: ef.mid.x + cx, y: ef.mid.y + cy };
+  const shape = getShapeCanvas();
 
   drawGrid(dark);
-  drawPrism(poly, dark);
+  drawPrism(shape, dark);
+
+  const dir   = beamDir(shape.entryInN, params.theta1);
+  const start = beamStart(shape.entryMid, dir);
 
   if (params.dispersion) {
     WAVELENGTHS.forEach(w => {
       const nP = getN(params.presetPrism,  params.nPrismC,  w.lam);
       const nM = getN(params.presetMedium, params.nMediumC, w.lam);
-      const dir   = beamDir(ef.inN, params.theta1);
-      const start = beamStart(efC, dir);
-      const segs  = traceRay(start, dir, poly, nP, nM);
+      const segs = traceRay(start, dir, shape, nP, nM);
       drawRaySegs(segs, w.color, 0.70);
     });
   } else {
     const nP  = getN(params.presetPrism,  params.nPrismC,  null);
     const nM  = getN(params.presetMedium, params.nMediumC, null);
-    const dir = beamDir(ef.inN, params.theta1);
-    const start = beamStart(efC, dir);
-    const segs  = traceRay(start, dir, poly, nP, nM);
+    const segs = traceRay(start, dir, shape, nP, nM);
     drawRaySegs(segs, '#00d4ff', 1.0);
-    drawAngleArcs(segs, dir, poly, dark);
+    drawAngleArcs(segs, dir, shape, dark);
   }
 
   drawLabels(dark);
-  updateReadout(localPoly, poly);
+  updateReadout(shape);
 }
 
 function drawGrid(dark) {
@@ -303,18 +349,21 @@ function drawGrid(dark) {
   for (let y = 0; y <= ch; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cw,y); ctx.stroke(); }
 }
 
-function drawPrism(poly, dark) {
-  ctx.beginPath();
-  poly.forEach((v,i) => i===0 ? ctx.moveTo(v.x,v.y) : ctx.lineTo(v.x,v.y));
-  ctx.closePath();
-
+function drawPrism(shape, dark) {
   const cx = prismCX(), cy = prismCY();
   const grad = ctx.createRadialGradient(cx, cy*0.8, 0, cx, cy, prismSize()*1.2);
   grad.addColorStop(0, dark ? 'rgba(130,200,255,0.18)' : 'rgba(100,160,220,0.22)');
   grad.addColorStop(1, dark ? 'rgba(60,140,220,0.07)'  : 'rgba(60,120,200,0.10)');
+
+  ctx.beginPath();
+  if (shape.type === 'circle') {
+    ctx.arc(shape.center.x, shape.center.y, shape.radius, 0, Math.PI * 2);
+  } else {
+    shape.verts.forEach((v,i) => i===0 ? ctx.moveTo(v.x,v.y) : ctx.lineTo(v.x,v.y));
+    ctx.closePath();
+  }
   ctx.fillStyle = grad;
   ctx.fill();
-
   ctx.strokeStyle = dark ? 'rgba(0,212,255,0.55)' : 'rgba(0,130,200,0.60)';
   ctx.lineWidth = 1.8;
   ctx.stroke();
@@ -347,10 +396,8 @@ function drawRaySegs(segs, color, alpha) {
 
 /*
  * Angle arc at the entry point (segs[0].to) and exit point.
- * Incident arc: from upward normal → incident ray direction (CCW, true)
- * Refracted arc: from downward normal → refracted ray direction (CCW, true)
  */
-function drawAngleArcs(segs, incDir, poly, dark) {
+function drawAngleArcs(segs, incDir, shape, dark) {
   if (segs.length < 2) return;
   const textCol = dark ? '#ddeeff' : '#0d1a26';
   const arcR    = Math.max(20, Math.min(38, Math.min(cw, ch) * 0.06));
@@ -359,23 +406,18 @@ function drawAngleArcs(segs, incDir, poly, dark) {
   ctx.textAlign = 'center'; ctx.lineWidth = 1.5;
 
   function arcAt(cx, cy, r, incD, refD, col1, col2, label1, label2) {
-    // Incident arc: normal points AWAY from polygon = outward direction at hit
-    // We draw the arc between the "anti-incident" direction and the surface normal
-    const ang_inc = Math.atan2(incD.y, incD.x);  // direction of ray
-    // Outward normal at hit
-    const hit = rayPolyHit(V.add({x:cx,y:cy}, V.scale(incD,-0.01)), incD, poly);
+    const ang_inc = Math.atan2(incD.y, incD.x);
+    const hit = hitShape(V.add({x:cx,y:cy}, V.scale(incD,-0.01)), incD, shape);
     if (!hit) return;
     const outN  = hit.outN;
-    const ang_n = Math.atan2(outN.y, outN.x);      // outward normal angle
-    const ang_in = ang_n + Math.PI;                  // inward normal angle
+    const ang_n = Math.atan2(outN.y, outN.x);
+    const ang_in = ang_n + Math.PI;
 
-    // θ₁: arc between inward normal and incident ray
     const theta1_rad = Math.acos(Math.max(-1, Math.min(1, V.dot(incD, {x:Math.cos(ang_in),y:Math.sin(ang_in)}))));
     ctx.strokeStyle = col1;
     ctx.beginPath();
-    // Sweep from inward normal to incident ray direction
     const a0 = ang_in, a1 = ang_inc;
-    const diff = ((a1 - a0) + Math.PI*3) % (Math.PI*2) - Math.PI;  // shortest angle
+    const diff = ((a1 - a0) + Math.PI*3) % (Math.PI*2) - Math.PI;
     ctx.arc(cx, cy, r, a0, a0 + diff, diff < 0);
     ctx.stroke();
     const aMid = a0 + diff/2;
@@ -383,10 +425,7 @@ function drawAngleArcs(segs, incDir, poly, dark) {
     ctx.fillText(label1, cx + Math.cos(aMid)*(r+16), cy + Math.sin(aMid)*(r+16));
 
     if (!refD) return;
-    // θ₂: arc between inward normal (from the transmitted side) and refracted ray
-    const ang_inT = ang_n;  // inward on transmitted side = outward normal direction reversed...
-    // Actually for refracted ray arc, normal on the transmitted side points INTO the medium
-    // = outward normal of the face (same direction, just convention)
+    const ang_inT = ang_n;
     const ang_ref = Math.atan2(refD.y, refD.x);
     const diff2 = ((ang_ref - ang_inT) + Math.PI*3) % (Math.PI*2) - Math.PI;
     ctx.strokeStyle = col2;
@@ -435,14 +474,12 @@ function drawLabels(dark) {
 }
 
 /* ── Readout ─────────────────────────────────────────────── */
-function updateReadout(localPoly, poly) {
-  const ef    = entryFace(localPoly);
-  const efC   = { x: ef.mid.x + prismCX(), y: ef.mid.y + prismCY() };
-  const dir   = beamDir(ef.inN, params.theta1);
-  const start = beamStart(efC, dir);
+function updateReadout(shape) {
+  const dir   = beamDir(shape.entryInN, params.theta1);
+  const start = beamStart(shape.entryMid, dir);
   const nP    = getN(params.presetPrism,  params.nPrismC,  null);
   const nM    = getN(params.presetMedium, params.nMediumC, null);
-  const segs  = traceRay(start, dir, poly, nP, nM);
+  const segs  = traceRay(start, dir, shape, nP, nM);
 
   const dev     = deviation(dir, segs);
   const tirHit  = segs.some((s,i) => i > 0 && segs[i-1].inside && s.inside);
@@ -455,8 +492,6 @@ function updateReadout(localPoly, poly) {
   if (params.prismType === 'triangle') {
     const A = params.apexAngle;
     const nRel = nP / nM;
-    const Dmin = dev != null ? null : null;
-    // Minimum deviation: Dmin = 2*arcsin(n*sin(A/2)) - A (analytical, for triangle in air)
     const sinArg = nRel * Math.sin(A * Math.PI / 360);
     if (sinArg <= 1) {
       const Dmin_deg = 2 * Math.asin(sinArg) * 180/Math.PI - A;
@@ -509,14 +544,12 @@ function panelTitle(gc, ox, oy, pw, title, dark) {
 }
 
 /* Numerically sweep theta1 0→89, compute deviation for each */
-function computeDevCurve(localPoly, poly, nP, nM) {
-  const ef  = entryFace(localPoly);
-  const efC = { x: ef.mid.x + prismCX(), y: ef.mid.y + prismCY() };
+function computeDevCurve(shape, nP, nM) {
   const pts = [];
   for (let deg = 0; deg <= 89; deg += 0.5) {
-    const dir   = beamDir(ef.inN, deg);
-    const start = beamStart(efC, dir);
-    const segs  = traceRay(start, dir, poly, nP, nM);
+    const dir   = beamDir(shape.entryInN, deg);
+    const start = beamStart(shape.entryMid, dir);
+    const segs  = traceRay(start, dir, shape, nP, nM);
     const dev   = deviation(dir, segs);
     if (dev != null) pts.push({ deg, dev });
     else break;
@@ -530,15 +563,12 @@ function drawDevPanel(ox, oy, pw, ph, dark, duplicate) {
   const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
   const textC = dark ? '#6b8099' : '#4a6278';
 
-  const localPoly = getPrismVertices();
-  const cx = prismCX(), cy = prismCY();
-  const poly = localPoly.map(v => ({ x: v.x+cx, y: v.y+cy }));
-  const nP   = getN(params.presetPrism,  params.nPrismC,  null);
-  const nM   = getN(params.presetMedium, params.nMediumC, null);
-  const pts  = computeDevCurve(localPoly, poly, nP, nM);
+  const shape = getShapeCanvas();
+  const nP    = getN(params.presetPrism,  params.nPrismC,  null);
+  const nM    = getN(params.presetMedium, params.nMediumC, null);
+  const pts   = computeDevCurve(shape, nP, nM);
 
   const devMax = Math.max(...pts.map(p => p.dev), 1);
-  const degMax = pts.length ? pts[pts.length-1].deg : 89;
 
   gctx.strokeStyle = '#00d4ff'; gctx.lineWidth = 1.8; gctx.beginPath();
   pts.forEach(({ deg, dev }, i) => {
@@ -582,24 +612,20 @@ function drawExitPanel(ox, oy, pw, ph, dark) {
   const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
   const textC = dark ? '#6b8099' : '#4a6278';
 
-  const localPoly = getPrismVertices();
-  const cx = prismCX(), cy = prismCY();
-  const poly = localPoly.map(v => ({ x: v.x+cx, y: v.y+cy }));
-  const ef   = entryFace(localPoly);
-  const efC  = { x: ef.mid.x + cx, y: ef.mid.y + cy };
-  const nP   = getN(params.presetPrism,  params.nPrismC,  null);
-  const nM   = getN(params.presetMedium, params.nMediumC, null);
+  const shape = getShapeCanvas();
+  const nP    = getN(params.presetPrism,  params.nPrismC,  null);
+  const nM    = getN(params.presetMedium, params.nMediumC, null);
 
   const pts = [];
   for (let deg = 0; deg <= 89; deg += 0.5) {
-    const dir   = beamDir(ef.inN, deg);
-    const start = beamStart(efC, dir);
-    const segs  = traceRay(start, dir, poly, nP, nM);
+    const dir   = beamDir(shape.entryInN, deg);
+    const start = beamStart(shape.entryMid, dir);
+    const segs  = traceRay(start, dir, shape, nP, nM);
     if (segs.length < 2) break;
     const last  = segs[segs.length-1];
     if (last.inside) break;
     const exitD = V.norm(V.sub(last.to, last.from));
-    const angle = Math.atan2(exitD.y, exitD.x) * 180/Math.PI;  // -180..180
+    const angle = Math.atan2(exitD.y, exitD.x) * 180/Math.PI;
     pts.push({ deg, angle });
   }
 
@@ -692,6 +718,7 @@ function buildControls() {
     { label:'Quadrato',  value:'square'   },
     { label:'Pentagono', value:'pentagon' },
     { label:'Esagono',   value:'hexagon'  },
+    { label:'Cerchio',   value:'circle'   },
   ], value: params.prismType,
     onChange(v) { params.prismType = v; apexSub[v==='triangle'?'show':'hide'](); requestRedraw(); },
   }));

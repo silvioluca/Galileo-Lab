@@ -73,6 +73,15 @@ const LABS = [
     url: null,
   },
   {
+    id: 'gas',
+    name: 'Leggi dei Gas',
+    desc: 'Esplora le trasformazioni isobare, isocore e isoterme di un gas ideale. Visualizza P-V, V-T e P-T e calcola lavoro, calore e variazione di energia interna.',
+    topic: 'termodinamica',
+    status: 'stable',
+    icon: '⚗️',
+    url: 'labs/gas/',
+  },
+  {
     id: 'carnot',
     name: 'Ciclo di Carnot',
     desc: 'Visualizza il ciclo termodinamico di Carnot su un diagramma P-V e calcola l\'efficienza della macchina.',
