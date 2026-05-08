@@ -109,6 +109,15 @@ const LABS = [
     url: 'labs/prism/',
   },
   {
+    id: 'diffraction',
+    name: 'Interferenza e Diffrazione',
+    desc: 'Studia la diffrazione di Fraunhofer con fenditura singola, doppia, tripla e reticolo. Visualizza lo schema ottico e il pattern sullo schermo con luce monocromatica o bianca.',
+    topic: 'onde',
+    status: 'stable',
+    icon: '〰️',
+    url: 'labs/diffraction/',
+  },
+  {
     id: 'standing-waves',
     name: 'Onde Stazionarie',
     desc: 'Genera e osserva onde stazionarie su una corda tesa. Misura frequenze e armoniche.',
