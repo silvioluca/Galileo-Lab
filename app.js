@@ -46,6 +46,15 @@ const LABS = [
     url: 'labs/double-pendulum/',
   },
   {
+    id: 'celestial',
+    name: 'Moti Celesti',
+    desc: 'Simula il problema dei due corpi con la gravità newtoniana. Scegli masse, velocità e direzione per ottenere orbite circolari, ellittiche, paraboliche o iperboliche.',
+    topic: 'dinamica',
+    status: 'stable',
+    icon: '🪐',
+    url: 'labs/celestial/',
+  },
+  {
     id: 'inclined-plane',
     name: 'Piano Inclinato',
     desc: 'Esplora equilibrio e moto su piano inclinato. Varia l\'angolo, la massa e il coefficiente di attrito.',
