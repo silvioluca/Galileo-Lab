@@ -137,6 +137,7 @@ body {
 .tag-termodinamica { background: rgba(255,71,87,0.1);    border: 1px solid rgba(255,71,87,0.25);   color: #ff4757; }
 .tag-ottica        { background: rgba(139,127,255,0.1);  border: 1px solid rgba(139,127,255,0.25); color: #8b7fff; }
 .tag-onde          { background: rgba(46,204,113,0.1);   border: 1px solid rgba(46,204,113,0.25);  color: #2ecc71; }
+.tag-astronomia    { background: rgba(120,60,200,0.10);  border: 1px solid rgba(120,60,200,0.25);  color: #b08cff; }
 
 /* ── Lab Layout ───────────────────────────────────────────── */
 .lab-layout {

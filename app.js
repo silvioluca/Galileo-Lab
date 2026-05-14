@@ -6,6 +6,7 @@ const TOPICS = [
   { id: 'termodinamica', label: 'Termodinamica' },
   { id: 'ottica',        label: 'Ottica' },
   { id: 'onde',          label: 'Onde' },
+  { id: 'astronomia',    label: 'Astronomia' },
 ];
 
 const LABS = [
@@ -55,13 +56,22 @@ const LABS = [
     url: 'labs/celestial/',
   },
   {
+    id: 'solar-system',
+    name: 'Sistema Solare',
+    desc: 'Esplora i dati di pianeti, satelliti e pianeti nani. Confronta dimensioni in scala e distanze orbitali.',
+    topic: 'astronomia',
+    status: 'beta',
+    icon: '🌍',
+    url: 'labs/solar-system/',
+  },
+  {
     id: 'inclined-plane',
     name: 'Piano Inclinato',
-    desc: 'Esplora equilibrio e moto su piano inclinato. Varia l\'angolo, la massa e il coefficiente di attrito.',
+    desc: 'Esplora equilibrio e moto su piano inclinato. Varia l\'angolo, la massa e il coefficiente di attrito. Visualizza le forze in gioco.',
     topic: 'dinamica',
-    status: 'soon',
+    status: 'stable',
     icon: '📐',
-    url: null,
+    url: 'labs/inclined-plane/',
   },
   {
     id: 'communicating-vessels',
@@ -95,9 +105,9 @@ const LABS = [
     name: 'Ciclo di Carnot',
     desc: 'Visualizza il ciclo termodinamico di Carnot su un diagramma P-V e calcola l\'efficienza della macchina.',
     topic: 'termodinamica',
-    status: 'soon',
+    status: 'stable',
     icon: '🌡️',
-    url: null,
+    url: 'labs/carnot/',
   },
   {
     id: 'refraction',
@@ -129,11 +139,11 @@ const LABS = [
   {
     id: 'standing-waves',
     name: 'Onde Stazionarie',
-    desc: 'Genera e osserva onde stazionarie su una corda tesa. Misura frequenze e armoniche.',
+    desc: 'Visualizza onde stazionarie su corda fissata o tubo risonante. Esplora armoniche, nodi e ventri al variare di frequenza, lunghezza e tensione.',
     topic: 'onde',
-    status: 'soon',
+    status: 'stable',
     icon: '〰️',
-    url: null,
+    url: 'labs/standing-waves/',
   },
 ];
 
