@@ -188,6 +188,7 @@ function resetSim() {
   running = false;
   if (rafId) cancelAnimationFrame(rafId);
   sim.reset();
+  view.scale = 1; view.tx = 0; view.ty = 0;
   computeGraphRanges();
   updateBtn(); draw(); drawGraphs(); updateReadout();
 }
@@ -243,7 +244,7 @@ function resizeAll() {
 new ResizeObserver(() => { resizeAll(); draw(); drawGraphs(); }).observe(canvas.parentElement);
 
 /* ─── Slope geometry ──────────────────────────────────────────── */
-const ML = 72, MR = 28, MT = 32, MB = 46;
+const ML = 52, MR = 52, MT = 32, MB = 46;
 
 function slopeGeom() {
   const th   = params.angle * Math.PI / 180;
@@ -252,23 +253,57 @@ function slopeGeom() {
   const aw   = cw - ML - MR;
   const ah   = ch - MT - MB;
   const sL   = Math.max(80, Math.min(ah / sinT, aw / cosT) * 0.82);
-  const fx = ML, fy = ch - MB;   // foot of slope (lower-left)
-  const px = fx + sL * cosT;     // peak x (upper-right)
-  const py = fy - sL * sinT;     // peak y
-  return { th, sinT, cosT, sL, fx, fy, px, py };
+  // Right angle on LEFT:
+  // rax,ray = right-angle vertex (lower-left, where vertical wall meets ground)
+  // px,py   = peak (upper-left, top of vertical wall)
+  // fx,fy   = foot (lower-right, end of slope on ground)
+  const rax = ML,            ray = ch - MB;
+  const px  = ML,            py  = ray - sL * sinT;
+  const fx  = ML + sL * cosT, fy = ray;
+  return { th, sinT, cosT, sL, fx, fy, px, py, rax, ray };
 }
 
 function blockPos(g) {
   const frac = 1 - sim.x / L_PHYS;  // 1=at peak, 0=at foot
   const bx   = g.fx + frac * (g.px - g.fx);
   const by   = g.fy + frac * (g.py - g.fy);
-  // Normal unit vector pointing away from slope surface (screen coords):
-  // slope direction = (cosT, -sinT); normal (90° CW) = (-sinT, -cosT)
-  const nx = -g.sinT, ny = -g.cosT;
+  // Slope direction (down-right) = (cosT, sinT)
+  // Normal (upper-right, away from triangle) = 90° CW of slope dir = (sinT, -cosT)
+  const nx = g.sinT, ny = -g.cosT;
   const bh = Math.max(12, g.sL * 0.055);
   const bw = bh * 1.3;
   return { bx, by, nx, ny, bh, bw, cx: bx + nx * bh / 2, cy: by + ny * bh / 2 };
 }
+
+/* ─── View (zoom / pan) ───────────────────────────────────────── */
+const view = { scale: 1, tx: 0, ty: 0 };
+
+(function initViewInteraction() {
+  canvas.style.cursor = 'grab';
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const wx = (mx - view.tx) / view.scale, wy = (my - view.ty) / view.scale;
+    view.scale = Math.max(0.25, Math.min(10, view.scale * factor));
+    view.tx = mx - wx * view.scale;
+    view.ty = my - wy * view.scale;
+    draw();
+  }, { passive: false });
+  let drag = false, ox = 0, oy = 0, stx = 0, sty = 0;
+  canvas.addEventListener('mousedown', e => {
+    drag = true; ox = e.clientX; oy = e.clientY; stx = view.tx; sty = view.ty;
+    canvas.style.cursor = 'grabbing';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    view.tx = stx + (e.clientX - ox);
+    view.ty = sty + (e.clientY - oy);
+    draw();
+  });
+  document.addEventListener('mouseup', () => { drag = false; canvas.style.cursor = 'grab'; });
+}());
 
 /* ─── Arrow utility ───────────────────────────────────────────── */
 function drawArrow(fromX, fromY, toX, toY, color, lw) {
@@ -276,7 +311,7 @@ function drawArrow(fromX, fromY, toX, toY, color, lw) {
   const len = Math.hypot(dx, dy);
   if (len < 3) return;
   const ux = dx / len, uy = dy / len;
-  const hl = Math.min(9, len * 0.38);
+  const hl = Math.min(14, len * 0.35);
   ctx.strokeStyle = ctx.fillStyle = color;
   ctx.lineWidth = lw || 2;
   ctx.beginPath();
@@ -298,6 +333,10 @@ function draw() {
   const g  = slopeGeom();
   const bp = blockPos(g);
 
+  ctx.save();
+  ctx.translate(view.tx, view.ty);
+  ctx.scale(view.scale, view.scale);
+
   // Ground
   ctx.strokeStyle = dk ? 'rgba(0,212,255,0.28)' : 'rgba(0,100,160,0.38)';
   ctx.lineWidth = 2;
@@ -308,44 +347,44 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(x, g.fy); ctx.lineTo(x - 8, g.fy + 8); ctx.stroke();
   }
 
-  // Slope triangle fill
+  // Slope triangle fill: rax,ray → px,py → fx,fy
   ctx.beginPath();
-  ctx.moveTo(g.fx, g.fy); ctx.lineTo(g.px, g.py); ctx.lineTo(g.px, g.fy);
+  ctx.moveTo(g.rax, g.ray); ctx.lineTo(g.px, g.py); ctx.lineTo(g.fx, g.fy);
   ctx.closePath();
   ctx.fillStyle = dk ? 'rgba(20,42,72,0.52)' : 'rgba(155,180,220,0.42)';
   ctx.fill();
 
-  // Slope surface
-  ctx.beginPath(); ctx.moveTo(g.fx, g.fy); ctx.lineTo(g.px, g.py);
+  // Slope surface: peak (upper-left) → foot (lower-right)
+  ctx.beginPath(); ctx.moveTo(g.px, g.py); ctx.lineTo(g.fx, g.fy);
   ctx.strokeStyle = dk ? 'rgba(0,212,255,0.62)' : 'rgba(0,100,160,0.72)';
   ctx.lineWidth = 2.5; ctx.stroke();
 
-  // Vertical side
-  ctx.beginPath(); ctx.moveTo(g.px, g.py); ctx.lineTo(g.px, g.fy);
+  // Vertical side: peak → right-angle vertex (both on left)
+  ctx.beginPath(); ctx.moveTo(g.px, g.py); ctx.lineTo(g.rax, g.ray);
   ctx.strokeStyle = dk ? 'rgba(0,212,255,0.22)' : 'rgba(0,100,160,0.28)';
   ctx.lineWidth = 1.5; ctx.stroke();
 
-  // Right angle marker
+  // Right angle marker at lower-left
   const sq = 9;
   ctx.strokeStyle = dk ? 'rgba(0,212,255,0.30)' : 'rgba(0,100,160,0.35)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(g.px - sq, g.fy - sq, sq, sq);
+  ctx.strokeRect(g.rax, g.ray - sq, sq, sq);
 
-  // Angle arc + label
+  // Angle arc + label at foot (lower-right)
   if (params.angle >= 1) {
     const arcR = Math.min(42, g.sL * 0.13);
-    ctx.beginPath(); ctx.arc(g.fx, g.fy, arcR, -g.th, 0);
+    ctx.beginPath(); ctx.arc(g.fx, g.fy, arcR, Math.PI, Math.PI + g.th);
     ctx.strokeStyle = dk ? 'rgba(255,200,50,0.65)' : 'rgba(155,95,0,0.75)';
     ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle  = dk ? 'rgba(255,200,50,0.82)' : 'rgba(155,95,0,0.88)';
     ctx.font = '700 10px "Space Mono",monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`${params.angle}°`, g.fx + arcR + 5, g.fy - 4);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${params.angle}°`, g.fx - arcR - 5, g.fy - 4);
   }
 
-  // Slope length label
-  const midX = (g.fx + g.px) / 2 + g.sinT * 13;
-  const midY = (g.fy + g.py) / 2 - g.cosT * 13;
+  // Slope length label (offset in normal direction from midpoint)
+  const midX = (g.px + g.fx) / 2 + g.sinT * 14;
+  const midY = (g.py + g.fy) / 2 - g.cosT * 14;
   ctx.fillStyle = dk ? 'rgba(100,165,225,0.38)' : 'rgba(20,60,120,0.38)';
   ctx.font = '9px "Space Mono",monospace';
   ctx.textAlign = 'center';
@@ -355,7 +394,7 @@ function draw() {
   const { bx, by, nx, ny, bh, bw, cx: bcx, cy: bcy } = bp;
   ctx.save();
   ctx.translate(bcx, bcy);
-  ctx.rotate(-g.th);
+  ctx.rotate(g.th);   // slope tilts down-right → positive angle in screen coords
   ctx.shadowColor = 'rgba(0,0,0,0.30)';
   ctx.shadowBlur = 6; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
   ctx.fillStyle = dk ? '#0e2236' : '#2c65b0';
@@ -365,65 +404,68 @@ function draw() {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(-bw / 2, -bh / 2, bw, bh);
   ctx.fillStyle = dk ? 'rgba(170,218,255,0.92)' : 'rgba(8,28,70,0.92)';
-  ctx.font = `700 ${Math.max(8, Math.min(11, bh * 0.42))}px "Space Mono",monospace`;
-  ctx.textAlign = 'center';
-  ctx.fillText(`${params.mass} kg`, 0, bh * 0.18);
+  //ctx.font = `700 ${Math.max(8, Math.min(11, bh * 0.42))}px "Space Mono",monospace`;
+  //ctx.textAlign = 'center';
+  //ctx.fillText(`${params.mass} kg`, 0, bh * 0.18);
   ctx.restore();
 
   // Force arrows
   if (params.showForces) {
     const f   = sim.forces;
     const ref = params.mass * G_VALS[params.planet];
-    const sc  = Math.max(22, g.sL * 0.14) / ref;
+    const sc  = Math.max(44, g.sL * 0.22) / ref;  // bigger vectors
 
     // Weight (straight down)
     const wLen = f.W * sc;
-    drawArrow(bcx, bcy, bcx, bcy + wLen, '#ff5555', 2);
+    drawArrow(bcx, bcy, bcx, bcy + wLen, '#ff5555', 2.5);
     ctx.fillStyle = dk ? '#ff9090' : '#bb1515';
-    ctx.font = '700 9px "Space Mono",monospace';
+    ctx.font = '700 12px "Space Mono",monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`W=${f.W.toFixed(1)}N`, bcx + 5, bcy + wLen * 0.6);
+    ctx.fillText(`W=${f.W.toFixed(1)} N`, bcx + 15, bcy + wLen * 0.55);
 
-    // Normal (perpendicular to slope)
+    // Normal (upper-right, perpendicular to slope)
     const nLen = f.N * sc;
-    drawArrow(bcx, bcy, bcx + nx * nLen, bcy + ny * nLen, '#44cc44', 2);
+    drawArrow(bcx, bcy, bcx + nx * nLen, bcy + ny * nLen, '#44cc44', 2.5);
     ctx.fillStyle = dk ? '#80e880' : '#106010';
-    ctx.textAlign = 'right';
-    ctx.fillText(`N=${f.N.toFixed(1)}N`, bcx + nx * nLen - 5, bcy + ny * nLen - 5);
+    ctx.font = '700 12px "Space Mono",monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`N=${f.N.toFixed(1)} N`, bcx + nx * nLen + 6, bcy + ny * nLen + 4);
 
-    // Friction (along slope, sign: >0 acts UP slope opposing downward motion)
+    // Friction: fric>0 → UP slope = (-cosT, -sinT); fric<0 → DOWN slope
     if (Math.abs(f.fric) > 0.05) {
       const fLen = Math.abs(f.fric) * sc;
-      // fric>0 → UP slope = (cosT, -sinT); fric<0 → DOWN slope = (-cosT, sinT)
       const fs   = Math.sign(f.fric);
-      const fdx  = fs * g.cosT;
+      const fdx  = fs * (-g.cosT);   // up-slope direction for new geometry
       const fdy  = fs * (-g.sinT);
-      drawArrow(bcx, bcy, bcx + fdx * fLen, bcy + fdy * fLen, '#ffb400', 2);
+      drawArrow(bcx, bcy, bcx + fdx * fLen, bcy + fdy * fLen, '#ffb400', 2.5);
       ctx.fillStyle = dk ? '#ffd060' : '#906000';
+      ctx.font = '700 12px "Space Mono",monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`f=${Math.abs(f.fric).toFixed(1)}N`,
-        bcx + fdx * fLen * 0.5 + nx * 14, bcy + fdy * fLen * 0.5 + ny * 14);
+      ctx.fillText(`f=${Math.abs(f.fric).toFixed(1)} N`,
+        bcx + fdx * fLen * 1.5 + nx * 18, bcy + fdy * fLen * 0.5 + ny * 18);
     }
 
-    // Net force (offset by blockH above surface, only when sliding)
+    // Net force (only when sliding): Fnet>0 → DOWN slope = (cosT, sinT)
     if (sim.sliding && Math.abs(f.Fnet) > 0.05) {
       const fnetLen = Math.abs(f.Fnet) * sc * 1.1;
-      // Fnet>0 → DOWN slope; Fnet<0 → UP slope
       const ns  = Math.sign(f.Fnet);
-      const ndx = ns * (-g.cosT);
+      const ndx = ns * g.cosT;    // down-slope for new geometry
       const ndy = ns * g.sinT;
-      const ox2 = bcx + nx * (bh + 10);
-      const oy2 = bcy + ny * (bh + 10);
+      const ox2 = bcx; //bcx + nx * (bh + 14);
+      const oy2 = bcy; //bcy + ny * (bh + 14);
       drawArrow(ox2, oy2, ox2 + ndx * fnetLen, oy2 + ndy * fnetLen,
-        dk ? '#00d4ff' : '#0070a0', 2.5);
+        dk ? '#00d4ff' : '#0070a0', 3);
       ctx.fillStyle = dk ? '#70e8ff' : '#005070';
+      ctx.font = '700 12px "Space Mono",monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`Fnet=${Math.abs(f.Fnet).toFixed(1)}N`,
-        ox2 + ndx * fnetLen * 0.5, oy2 + ndy * fnetLen * 0.5 - 8);
+      ctx.fillText(`Fnet=${Math.abs(f.Fnet).toFixed(1)} N`,
+        ox2 + ndx * fnetLen * 0.5 + 40, oy2 + ndy * fnetLen * 0.5 - 10);
     }
   }
 
-  // Status
+  ctx.restore(); // end view transform
+
+  // Status (screen-fixed, outside view transform)
   const st = sim.statusText;
   ctx.fillStyle = st === 'Scivola' ? (dk ? '#ffb400' : '#906000')
                 : st === 'Arrivato' ? (dk ? '#44dd88' : '#008844')

@@ -74,6 +74,15 @@ const LABS = [
     url: 'labs/inclined-plane/',
   },
   {
+    id: 'spring',
+    name: 'Forza Elastica',
+    desc: 'Studia il moto oscillatorio di una massa appesa a una molla. Regola costante elastica, lunghezza naturale e massa. Visualizza i vettori forza e i grafici x(t) e v(t).',
+    topic: 'dinamica',
+    status: 'stable',
+    icon: '🌀',
+    url: 'labs/spring/',
+  },
+  {
     id: 'communicating-vessels',
     name: 'Vasi Comunicanti',
     desc: 'Visualizza il principio dei vasi comunicanti con fluidi di densità diverse e geometrie variabili.',
