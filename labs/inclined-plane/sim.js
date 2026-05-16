@@ -224,6 +224,13 @@ let cw = 0, ch = 0, gw = 0, gh = 0;
 
 function isDark() { return document.documentElement.dataset.theme !== 'light'; }
 
+function drawGridBg(ctx, w, h, dk) {
+  ctx.strokeStyle = dk ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  for (let y = 0; y <= h; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+}
+
 function resizeAll() {
   const d   = window.devicePixelRatio || 1;
   const par = canvas.parentElement;
@@ -330,6 +337,7 @@ function draw() {
   if (!cw || !ch) return;
   ctx.clearRect(0, 0, cw, ch);
   const dk = isDark();
+  drawGridBg(ctx, cw, ch, dk);
   const g  = slopeGeom();
   const bp = blockPos(g);
 
@@ -505,6 +513,9 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, label, dark, series, yFixed, tFixe
   const allT = series.flatMap(s => s.data.map(d => d.t));
   const allY = series.flatMap(s => s.data.map(d => d.y));
   const tMax = tFixed ?? (allT.length ? Math.max(...allT) * 1.05 : 0.5);
+  gctx.fillStyle = dark ? '#0b1018' : '#f0f2f5';
+  gctx.fillRect(ox, oy, gW, gH);
+
   let yMin, yMax;
   if (yFixed) { [yMin, yMax] = yFixed; }
   else {
@@ -517,10 +528,10 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, label, dark, series, yFixed, tFixe
   const toX = t => ox + pl + (t / tMax) * iW;
   const toY = y => oy + pt + (1 - (y - yMin) / (yMax - yMin)) * iH;
 
-  const axClr  = dark ? 'rgba(0,212,255,0.45)' : 'rgba(0,100,160,0.55)';
-  const grClr  = dark ? 'rgba(0,212,255,0.05)' : 'rgba(0,100,160,0.07)';
-  const tkClr  = dark ? 'rgba(0,212,255,0.60)' : 'rgba(0,100,160,0.70)';
-  const lblClr = dark ? 'rgba(0,212,255,0.70)' : 'rgba(0,100,160,0.80)';
+  const axClr  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
+  const grClr  = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  const tkClr  = dark ? '#6b8099' : '#4a6278';
+  const lblClr = dark ? '#6b8099' : '#4a6278';
 
   const yTks = niceTicks(yMin, yMax, 4);
   const tTks = niceTicks(0, tMax, 4);
@@ -542,7 +553,7 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, label, dark, series, yFixed, tFixe
   if (yMin < -1e-9 && yMax > 1e-9) {
     gctx.beginPath(); gctx.moveTo(ox+pl, toY(0)); gctx.lineTo(ox+pl+iW, toY(0)); gctx.stroke();
   }
-  gctx.strokeStyle = dark ? 'rgba(0,212,255,0.10)' : 'rgba(0,100,160,0.12)';
+  gctx.strokeStyle = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
   gctx.lineWidth = 1; gctx.strokeRect(ox+pl, oy+pt, iW, iH);
 
   gctx.font = '700 9px "Space Mono",monospace';

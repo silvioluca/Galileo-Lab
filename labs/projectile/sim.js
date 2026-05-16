@@ -565,10 +565,10 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
   function toX(t) { return ox + pl + (t / tRange) * iW; }
   function toY(y) { return oy + pt + (1 - (y - yMin) / (yMax - yMin)) * iH; }
 
-  const axisClr = dark ? 'rgba(0,212,255,0.45)' : 'rgba(0,100,160,0.55)';
-  const gridClr = dark ? 'rgba(0,212,255,0.05)' : 'rgba(0,100,160,0.07)';
-  const tickClr = dark ? 'rgba(0,212,255,0.60)' : 'rgba(0,100,160,0.70)';
-  const lblClr  = dark ? 'rgba(0,212,255,0.70)' : 'rgba(0,100,160,0.80)';
+  const axisClr = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
+  const gridClr = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  const tickClr = dark ? '#6b8099' : '#4a6278';
+  const lblClr  = dark ? '#6b8099' : '#4a6278';
 
   const yTicks = niceTicks(yMin, yMax, 4);
   const tTicks = niceTicks(0, tRange, 4);
@@ -598,7 +598,7 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
     gctx.beginPath(); gctx.moveTo(ox + pl, zeroY); gctx.lineTo(ox + pl + iW, zeroY); gctx.stroke();
   }
 
-  gctx.strokeStyle = dark ? 'rgba(0,212,255,0.10)' : 'rgba(0,100,160,0.12)';
+  gctx.strokeStyle = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
   gctx.lineWidth = 1;
   gctx.strokeRect(ox + pl, oy + pt, iW, iH);
 
