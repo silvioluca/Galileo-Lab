@@ -146,6 +146,24 @@ const LABS = [
     url: 'labs/carnot/',
   },
   {
+    id: 'color-synthesis',
+    name: 'Sintesi del Colore',
+    desc: 'Esplora la sintesi additiva (RGB, luce) e sottrattiva (CMY, pigmenti) del colore. Varia l\'intensità di ciascun primario e osserva i colori misti nelle zone di sovrapposizione.',
+    topic: 'ottica',
+    status: 'stable',
+    icon: '🎨',
+    url: 'labs/color-synthesis/',
+  },
+  {
+    id: 'geometric-optics',
+    name: 'Ottica Geometrica — Lenti',
+    desc: 'Esplora la formazione delle immagini attraverso lenti convergenti e divergenti. Studia i sei tipi di lente con ray tracing paraxiale, regola curvature, indice di rifrazione e posizione dell\'oggetto.',
+    topic: 'ottica',
+    status: 'stable',
+    icon: '🔭',
+    url: 'labs/geometric-optics/',
+  },
+  {
     id: 'refraction',
     name: 'Rifrazione della Luce',
     desc: 'Esplora la legge di Snell al variare degli indici di rifrazione e dell\'angolo di incidenza. Visualizza la dispersione cromatica con la legge di Cauchy.',
@@ -180,6 +198,15 @@ const LABS = [
     status: 'stable',
     icon: '〰️',
     url: 'labs/standing-waves/',
+  },
+  {
+    id: 'battimenti',
+    name: 'Battimenti',
+    desc: 'Sovrapponi due onde sinusoidali di frequenze vicine e osserva i battimenti. Varia ampiezze e frequenze, ascolta il suono risultante e studia inviluppo e frequenza di battimento.',
+    topic: 'onde',
+    status: 'stable',
+    icon: '🎵',
+    url: 'labs/battimenti/',
   },
 ];
 
