@@ -137,7 +137,8 @@ body {
 .tag-termodinamica { background: rgba(255,71,87,0.1);    border: 1px solid rgba(255,71,87,0.25);   color: #ff4757; }
 .tag-ottica        { background: rgba(139,127,255,0.1);  border: 1px solid rgba(139,127,255,0.25); color: #8b7fff; }
 .tag-onde          { background: rgba(46,204,113,0.1);   border: 1px solid rgba(46,204,113,0.25);  color: #2ecc71; }
-.tag-astronomia    { background: rgba(120,60,200,0.10);  border: 1px solid rgba(120,60,200,0.25);  color: #b08cff; }
+.tag-astronomia        { background: rgba(120,60,200,0.10);  border: 1px solid rgba(120,60,200,0.25);  color: #b08cff; }
+.tag-elettromagnetismo { background: rgba(255,195,0,0.10);  border: 1px solid rgba(255,195,0,0.25);   color: #ffc300; }
 
 /* ── Lab Layout ───────────────────────────────────────────── */
 .lab-layout {
@@ -453,6 +454,25 @@ body {
   color: #ff4757;
 }
 .btn-primary.running:hover { background: rgba(255, 71, 87, 0.16); box-shadow: 0 0 16px rgba(255, 71, 87, 0.2); }
+
+/* ctrl-btn: compact action button for use inside control sections */
+.ctrl-btn {
+  width: 100%;
+  padding: 7px 10px;
+  background: rgba(0,212,255,0.07);
+  border: 1px solid var(--border-idle);
+  border-radius: 7px;
+  color: inherit;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: left;
+}
+.ctrl-btn:hover {
+  background: rgba(0,212,255,0.14);
+  border-color: var(--border-active);
+}
 
 .btn-secondary {
   width: 100%;

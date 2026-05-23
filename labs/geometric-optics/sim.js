@@ -27,11 +27,11 @@ const view = { zoom: 1.0, panX: 0 };  // panX in canvas px
 // ── Lens type presets ─────────────────────────────────────────────────────────
 const LENS_TYPES = {
   biconvex:     { R1:  80,       R2:  -80,       label: 'Biconvessa'    },
-  planoconvex:  { R1: Infinity,  R2:  -80,       label: 'Piano-convessa'},
-  posmenisc:    { R1: 100,       R2:   60,       label: 'Menisco conv.' },
+  planoconvex:  { R1: Infinity,  R2:  -80,       label: 'Piano convessa'},
+  posmenisc:    { R1: 100,       R2:   60,       label: 'Menisco convergente' },
   biconcave:    { R1: -80,       R2:   80,       label: 'Biconcava'     },
-  planoconcave: { R1: -Infinity, R2:   80,       label: 'Piano-concava' },
-  negmenisc:    { R1: -60,       R2: -100,       label: 'Menisco div.'  },
+  planoconcave: { R1: -Infinity, R2:   80,       label: 'Piano concava' },
+  negmenisc:    { R1: -60,       R2: -100,       label: 'Menisco divergente'  },
 };
 
 // Visual shape presets: ew = edge half-width fraction, sl/sr = sagitta sign
@@ -658,7 +658,7 @@ function buildControls() {
     label: 'view-mode',
     options: [
       { value: 'rays',   label: 'Raggi paralleli'    },
-      { value: 'object', label: 'Oggetto & Immagine' },
+      { value: 'object', label: 'Oggetto e immagine' },
     ],
     value: params.viewMode,
     onChange: v => { params.viewMode = v; buildControls(); drawScene(); drawGraphs(); },
