@@ -58,6 +58,15 @@ const LABS = [
     url: 'labs/celestial/',
   },
   {
+    id: 'three-body',
+    name: 'Problema dei Tre Corpi',
+    desc: 'Esplora la dinamica caotica di tre masse che interagiscono gravitazionalmente. Preset: orbita a figura-8, triangolo equilatero di Lagrange, sistema gerarchico stella-pianeta-luna e traiettorie caotiche.',
+    topic: 'astronomia',
+    status: 'beta',
+    icon: '🌌',
+    url: 'labs/three-body/',
+  },
+  {
     id: 'solar-system',
     name: 'Sistema Solare',
     desc: 'Esplora i dati di pianeti, satelliti e pianeti nani. Confronta dimensioni in scala e distanze orbitali.',
