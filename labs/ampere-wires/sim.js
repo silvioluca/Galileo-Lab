@@ -1,0 +1,450 @@
+'use strict';
+
+// ═══ Costanti ═════════════════════════════════════════════════════════════════
+const MU0 = 4*Math.PI*1e-7;   // T·m/A
+
+// ═══ Stato ════════════════════════════════════════════════════════════════════
+const P = {
+  I1:   10,      // corrente filo 1 (A), segno = verso
+  I2:   10,      // corrente filo 2 (A)
+  dist: 4,       // distanza a riposo (cm)
+  tension: 50,   // tensione dei fili (N) — rigidità al movimento
+  view: '2d',    // '2d' | '3d'
+  showB: true,
+  showForce: true,
+};
+
+// posizione laterale del CENTRO dei fili (cm); estremità fisse a ∓dist/2
+let x1=-2, x2=+2, v1=0, v2=0;
+let zoom=1;
+let rotX=-0.35, rotY=0.6, dragging=false, lastX=0, lastY=0;
+let gCanvas=[null,null,null], gCtx=[null,null,null];
+let readout, t=0;
+
+// ═══ Palette ══════════════════════════════════════════════════════════════════
+function dk(){ return document.documentElement.dataset.theme !== 'light'; }
+function pal(){
+  const d=dk();
+  return {
+    bg:    d?'#06090f':'#e7edf4',
+    txt:   d?'rgba(215,235,250,0.95)':'rgba(20,45,75,0.95)',
+    sub:   d?'rgba(165,195,220,0.8)':'rgba(60,95,130,0.88)',
+    accent:d?'#00d4ff':'#0a78b0',
+    wire1: d?'#ff8a3a':'#d2620a',
+    wire2: d?'#4fd0ff':'#0a78b0',
+    bfield:d?'rgba(120,180,255,0.45)':'rgba(40,110,200,0.5)',
+    force: d?'#ff4d6d':'#d61f4a',
+    grid:  d?'rgba(120,150,190,0.22)':'rgba(60,95,130,0.28)',
+    gBg:   d?'rgb(3,9,22)':'#eef2f7',
+    gAxis: d?'rgba(100,155,210,0.26)':'rgba(40,80,130,0.30)',
+    gText: d?'rgba(150,205,225,0.88)':'rgba(25,65,105,0.92)',
+  };
+}
+let T=pal();
+
+// ═══ Fisica ═══════════════════════════════════════════════════════════════════
+function dNow(){ return Math.abs(x2-x1)/100; }            // distanza attuale (m)
+function forcePerLen(){ return MU0*P.I1*P.I2/(2*Math.PI*Math.max(0.002,dNow())); } // N/m (con segno)
+function attracting(){ return P.I1*P.I2>0; }              // correnti concordi → attrazione
+
+// riporta i fili dritti (a riposo) → l'animazione riparte
+function resetWires(){ x1=-P.dist/2; x2=P.dist/2; v1=0; v2=0; }
+
+// ═══ Dinamica (molla = tensione) ──────────────────────────────────────────────
+function physics(dt){
+  const F = forcePerLen();                       // N/m
+  const Fmag = Math.min(3.2, Math.abs(F)*4e5);   // modulo scalato (sempre ≥0)
+  const k = P.tension*0.015;                     // rigidità ∝ tensione
+  const r1=-P.dist/2, r2=+P.dist/2;
+  const dir = attracting()?1:-1;                 // +1 attrae, −1 respinge
+  // attrazione: filo1 (sin) →+ verso centro, filo2 (dx) →− verso centro
+  const a1 =  dir*Fmag - k*(x1-r1) - v1*0.8;
+  const a2 = -dir*Fmag - k*(x2-r2) - v2*0.8;
+  v1+=a1*dt; v2+=a2*dt; x1+=v1*dt; x2+=v2*dt;
+  if(x2-x1<0.6){ const m=(x1+x2)/2; x1=m-0.3; x2=m+0.3; v1=v2=0; }
+}
+
+// ═══ Rendering ════════════════════════════════════════════════════════════════
+function draw(canvas){
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
+  drawGrid(ctx,W,H);
+  if(P.view==='2d') draw2D(ctx,W,H); else draw3D(ctx,W,H);
+  drawHeader(ctx,W,H);
+}
+
+function drawGrid(ctx,W,H){
+  ctx.strokeStyle = dk() ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)';
+  ctx.lineWidth=1;
+  const step=40*zoom;
+  for(let x=(W/2)%step; x<=W; x+=step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for(let y=(H/2)%step; y<=H; y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+}
+
+function drawHeader(ctx,W,H){
+  ctx.textAlign='left';
+  ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
+  ctx.fillText(`F/L = μ₀·I₁·I₂ / (2π·d)`, 14, 24);
+  ctx.fillStyle=attracting()?T.wire2:T.force; ctx.font='12px "DM Sans",sans-serif';
+  ctx.fillText(attracting()?'correnti concordi → ATTRAZIONE':'correnti discordi → REPULSIONE', 14, 42);
+}
+
+// ── Vista 2D (sezione trasversale): fili puntuali ⊙/⊗, fili fermi ─────────────
+function draw2D(ctx,W,H){
+  const cx=W/2, cy=H*0.52;
+  const scale=Math.min(W,H)*0.06*zoom;        // px per cm
+  const wx1=cx-P.dist/2*scale, wx2=cx+P.dist/2*scale;
+  const wr=11;
+
+  // campo magnetico: cerchi concentrici con freccine animate (verso del campo)
+  if(P.showB){
+    drawFieldCircles(ctx, wx1, cy, P.I1);
+    drawFieldCircles(ctx, wx2, cy, P.I2);
+    // etichetta B
+    ctx.fillStyle=T.bfield; ctx.font='italic bold 12px "Space Mono",monospace'; ctx.textAlign='center';
+    ctx.fillText('B', wx1, cy-78);
+    ctx.fillText('B', wx2, cy-78);
+  }
+
+  // forza
+  if(P.showForce){
+    const att=attracting();
+    drawForceArrow(ctx, wx1, cy, att?+1:-1, 'F₁');
+    drawForceArrow(ctx, wx2, cy, att?-1:+1, 'F₂');
+  }
+
+  // fili puntuali con simbolo corrente (⊙ uscente / ⊗ entrante) e flusso animato
+  drawWireDot(ctx, wx1, cy, wr, P.I1, T.wire1, 'I₁');
+  drawWireDot(ctx, wx2, cy, wr, P.I2, T.wire2, 'I₂');
+
+  // distanza
+  ctx.strokeStyle=T.sub; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(wx1,cy+54); ctx.lineTo(wx2,cy+54); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
+  ctx.fillText(`d = ${P.dist.toFixed(1)} cm`, (wx1+wx2)/2, cy+68);
+
+  ctx.textAlign='left'; ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
+  ctx.fillText('sezione trasversale · ⊙ corrente uscente · ⊗ corrente entrante', 14, H-16);
+}
+
+// cerchi di campo con freccine tangenziali animate (scorrimento = verso corrente)
+function drawFieldCircles(ctx, wx, cy, I){
+  const sign = I>=0 ? 1 : -1;     // uscente (⊙) → B antiorario
+  ctx.strokeStyle=T.bfield; ctx.fillStyle=T.bfield; ctx.lineWidth=1;
+  for(let r=24;r<=72;r+=16){
+    ctx.beginPath(); ctx.arc(wx,cy,r,0,Math.PI*2); ctx.stroke();
+    // 3 freccine tangenziali, posizioni animate nel tempo
+    for(let j=0;j<3;j++){
+      const a = sign*t*1.2 + j*Math.PI*2/3;
+      const px=wx+Math.cos(a)*r, py=cy+Math.sin(a)*r;
+      // direzione tangente (verso del campo)
+      const tx=-Math.sin(a)*sign, ty=Math.cos(a)*sign;
+      ctx.beginPath();
+      ctx.moveTo(px+tx*5, py+ty*5);
+      ctx.lineTo(px-tx*4-ty*3, py-ty*4+tx*3);
+      ctx.lineTo(px-tx*4+ty*3, py-ty*4-tx*3);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+}
+
+// filo puntuale: cerchio + ⊙/⊗, con anello pulsante = scorrimento corrente
+function drawWireDot(ctx, x, y, r, I, col, lbl){
+  // alone pulsante (scorrere della corrente)
+  const pulse=0.5+0.5*Math.sin(t*4*(I>=0?1:-1));
+  ctx.globalAlpha=0.25+0.35*pulse;
+  const g=ctx.createRadialGradient(x,y,r*0.4,x,y,r*1.9);
+  g.addColorStop(0,col); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*1.9,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=1;
+
+  ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=1; ctx.stroke();
+  // simbolo verso
+  if(I>=0){ ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill(); }
+  else { ctx.strokeStyle='#fff'; ctx.lineWidth=2; const s=r*0.55;
+    ctx.beginPath(); ctx.moveTo(x-s,y-s); ctx.lineTo(x+s,y+s); ctx.moveTo(x+s,y-s); ctx.lineTo(x-s,y+s); ctx.stroke(); }
+  ctx.fillStyle=col; ctx.font='11px "Space Mono",monospace'; ctx.textAlign='center';
+  ctx.fillText(`${lbl} = ${I} A`, x, y+r+18);
+}
+
+// freccia forza orizzontale con etichetta
+function drawForceArrow(ctx, x, y, dir, lbl){
+  const len=40, x2=x+dir*len;
+  ctx.strokeStyle=T.force; ctx.fillStyle=T.force; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(x+dir*14,y); ctx.lineTo(x2,y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2,y); ctx.lineTo(x2-dir*8,y-5); ctx.lineTo(x2-dir*8,y+5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=T.force; ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='center';
+  ctx.fillText(lbl||'F', x+dir*28, y-9);
+}
+
+// ── Vista 3D ──────────────────────────────────────────────────────────────────
+function rot(p, cosX,sinX,cosY,sinY){
+  const x1=p[0]*cosY - p[2]*sinY, z1=p[0]*sinY + p[2]*cosY;
+  const y1=p[1]*cosX - z1*sinX, z2=p[1]*sinX + z1*cosX;
+  return [x1,y1,z2];
+}
+function draw3D(ctx,W,H){
+  const cx=W/2, cy=H*0.52, S=Math.min(W,H)*0.018*zoom;
+  const cosX=Math.cos(rotX),sinX=Math.sin(rotX),cosY=Math.cos(rotY),sinY=Math.sin(rotY);
+  const proj=p=>{ const r=rot(p,cosX,sinX,cosY,sinY); return [cx+r[0]*S, cy-r[1]*S, r[2]]; };
+  const Lh=14;   // semi-altezza fili (unità)
+  // estremità fisse a ∓dist/2, centro incurvato a x1/x2
+  const bow=u=>Math.sin(Math.PI*u);   // u∈[0,1]
+  const xAt=(yy,xc,xr)=>{ const u=(yy+Lh)/(2*Lh); return xr + (xc-xr)*bow(u); };
+
+  const wires=[
+    { xc:x1, xr:-P.dist/2, I:P.I1, col:T.wire1, lbl:'I₁' },
+    { xc:x2, xr:+P.dist/2, I:P.I2, col:T.wire2, lbl:'I₂' },
+  ];
+
+  // morsetti fissi alle estremità
+  ctx.fillStyle=T.sub;
+  for(const w of wires){
+    for(const yy of [-Lh,Lh]){ const p=proj([w.xr,yy,0]); ctx.beginPath(); ctx.arc(p[0],p[1],4,0,Math.PI*2); ctx.fill(); }
+  }
+
+  // campo magnetico: anelli attorno a ciascun filo (seguono la curva)
+  if(P.showB){
+    ctx.strokeStyle=T.bfield; ctx.lineWidth=1;
+    for(const w of wires){
+      for(let yy=-Lh+4; yy<=Lh-4; yy+=7){
+        const wx=xAt(yy,w.xc,w.xr), rad=4;
+        ctx.beginPath();
+        for(let a=0;a<=48;a++){
+          const th=a/48*Math.PI*2;
+          const p=proj([wx+Math.cos(th)*rad, yy, Math.sin(th)*rad]);
+          a===0?ctx.moveTo(p[0],p[1]):ctx.lineTo(p[0],p[1]);
+        }
+        ctx.stroke();
+      }
+    }
+  }
+
+  // fili incurvati con frecce di corrente
+  for(const w of wires){
+    ctx.strokeStyle=w.col; ctx.lineWidth=3; ctx.beginPath();
+    for(let i=0;i<=40;i++){ const yy=-Lh+2*Lh*i/40; const p=proj([xAt(yy,w.xc,w.xr),yy,0]); i===0?ctx.moveTo(p[0],p[1]):ctx.lineTo(p[0],p[1]); }
+    ctx.stroke();
+    // frecce di corrente che SCORRONO lungo il filo (animazione del flusso)
+    const dir=w.I>=0?1:-1;
+    const SP=5;                                  // spaziatura
+    const phase=((t*6*dir)%SP+SP)%SP;            // offset animato
+    ctx.fillStyle=w.col;
+    for(let yy=-Lh+1+phase; yy<Lh-1; yy+=SP){
+      const p0=proj([xAt(yy,w.xc,w.xr),yy,0]), p1=proj([xAt(yy+dir*2.0,w.xc,w.xr),yy+dir*2.0,0]);
+      const ang=Math.atan2(p1[1]-p0[1],p1[0]-p0[0]);
+      ctx.beginPath(); ctx.moveTo(p1[0],p1[1]);
+      ctx.lineTo(p1[0]-7*Math.cos(ang-0.4),p1[1]-7*Math.sin(ang-0.4));
+      ctx.lineTo(p1[0]-7*Math.cos(ang+0.4),p1[1]-7*Math.sin(ang+0.4));
+      ctx.closePath(); ctx.fill();
+    }
+    const top=proj([w.xr,Lh+2,0]);
+    ctx.fillStyle=w.col; ctx.font='11px "Space Mono",monospace'; ctx.textAlign='center';
+    ctx.fillText(`${w.lbl}=${w.I}A`, top[0], top[1]);
+  }
+
+  // etichetta B vicino agli anelli di campo
+  if(P.showB){
+    const w=wires[0]; const pb=proj([w.xc+5, 0, 0]);
+    ctx.fillStyle=T.bfield; ctx.font='italic bold 12px "Space Mono",monospace'; ctx.textAlign='center';
+    ctx.fillText('B', pb[0], pb[1]);
+  }
+
+  // forza al centro (incurvamento massimo)
+  if(P.showForce){
+    const att=attracting();
+    for(const w of wires){
+      const dir=(w===wires[0]?(att?1:-1):(att?-1:1));
+      const p0=proj([w.xc,0,0]), p1=proj([w.xc+dir*3,0,0]);
+      ctx.strokeStyle=T.force; ctx.fillStyle=T.force; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.stroke();
+      const ang=Math.atan2(p1[1]-p0[1],p1[0]-p0[0]);
+      ctx.beginPath(); ctx.moveTo(p1[0],p1[1]);
+      ctx.lineTo(p1[0]-8*Math.cos(ang-0.4),p1[1]-8*Math.sin(ang-0.4));
+      ctx.lineTo(p1[0]-8*Math.cos(ang+0.4),p1[1]-8*Math.sin(ang+0.4));
+      ctx.closePath(); ctx.fill();
+      ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='center';
+      ctx.fillText(w===wires[0]?'F₁':'F₂', p1[0]+dir*8, p1[1]-6);
+    }
+  }
+
+  ctx.textAlign='left'; ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
+  ctx.fillText('trascina per ruotare · scroll per zoom', 14, H-16);
+}
+
+// ═══ Grafici ══════════════════════════════════════════════════════════════════
+function gBase(ctx,W,H,PAD){
+  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
+  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
+  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
+  return {gW,gH};
+}
+
+// 1: F/L vs distanza (1/d)
+function drawFvsD(){
+  const cv=gCanvas[0]; if(!cv||!cv.width)return;
+  const ctx=gCtx[0],W=cv.width,H=cv.height;
+  const PAD={t:14,b:16,l:26,r:8};
+  const {gW,gH}=gBase(ctx,W,H,PAD);
+  const dmin=0.5,dmax=10;
+  const Fat=d=>MU0*Math.abs(P.I1*P.I2)/(2*Math.PI*d/100);
+  const Fmax=Fat(dmin);
+  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath();
+  for(let i=0;i<=60;i++){ const d=dmin+(dmax-dmin)*i/60; const x=PAD.l+(d-dmin)/(dmax-dmin)*gW, y=PAD.t+gH-Fat(d)/Fmax*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+  ctx.stroke();
+  const dc=dNow()*100;
+  if(dc>=dmin&&dc<=dmax){ const x=PAD.l+(dc-dmin)/(dmax-dmin)*gW, y=PAD.t+gH-Fat(dc)/Fmax*gH; ctx.fillStyle=T.force; ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill(); }
+  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
+  ctx.fillText('F/L',PAD.l+2,PAD.t+7); ctx.fillText('d (cm)',PAD.l+gW-26,PAD.t+gH+11);
+}
+
+// 2: F/L vs I (prodotto correnti)
+function drawFvsI(){
+  const cv=gCanvas[1]; if(!cv||!cv.width)return;
+  const ctx=gCtx[1],W=cv.width,H=cv.height;
+  const PAD={t:14,b:16,l:26,r:8};
+  const {gW,gH}=gBase(ctx,W,H,PAD);
+  const d=dNow();
+  const Imax=400;  // I1*I2 max
+  const Fat=II=>MU0*II/(2*Math.PI*Math.max(0.002,d));
+  const Fmax=Fat(Imax);
+  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath();
+  for(let i=0;i<=60;i++){ const II=Imax*i/60; const x=PAD.l+II/Imax*gW, y=PAD.t+gH-Fat(II)/Fmax*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+  ctx.stroke();
+  const IIc=Math.abs(P.I1*P.I2);
+  if(IIc<=Imax){ const x=PAD.l+IIc/Imax*gW, y=PAD.t+gH-Fat(IIc)/Fmax*gH; ctx.fillStyle=T.force; ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill(); }
+  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
+  ctx.fillText('F/L',PAD.l+2,PAD.t+7); ctx.fillText('I₁·I₂',PAD.l+gW-26,PAD.t+gH+11);
+}
+
+// 3: B(r) attorno al filo (1/r)
+function drawBvsR(){
+  const cv=gCanvas[2]; if(!cv||!cv.width)return;
+  const ctx=gCtx[2],W=cv.width,H=cv.height;
+  const PAD={t:14,b:16,l:26,r:8};
+  const {gW,gH}=gBase(ctx,W,H,PAD);
+  const rmin=0.2,rmax=8;
+  const Bat=r=>MU0*Math.abs(P.I1)/(2*Math.PI*r/100);
+  const Bmax=Bat(rmin);
+  ctx.strokeStyle=T.bfield; ctx.lineWidth=1.4; ctx.beginPath();
+  for(let i=0;i<=60;i++){ const r=rmin+(rmax-rmin)*i/60; const x=PAD.l+(r-rmin)/(rmax-rmin)*gW, y=PAD.t+gH-Bat(r)/Bmax*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+  ctx.stroke();
+  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
+  ctx.fillText('B',PAD.l+2,PAD.t+7); ctx.fillText('r (cm)',PAD.l+gW-26,PAD.t+gH+11);
+}
+
+function drawGraphs(){ drawFvsD(); drawFvsI(); drawBvsR(); }
+
+// ═══ Controlli ════════════════════════════════════════════════════════════════
+function buildControls(){
+  const cont=document.getElementById('controls');
+  cont.innerHTML='';
+
+  const secC=Lab.Section('Correnti');
+  cont.appendChild(secC.el);
+  secC.add(Lab.Slider({ label:'I₁ (verso ±)', min:-20, max:20, step:1, value:P.I1, unit:' A', onChange(v){P.I1=v; resetWires();} }));
+  secC.add(Lab.Slider({ label:'I₂ (verso ±)', min:-20, max:20, step:1, value:P.I2, unit:' A', onChange(v){P.I2=v; resetWires();} }));
+
+  const secG=Lab.Section('Geometria');
+  cont.appendChild(secG.el);
+  secG.add(Lab.Slider({ label:'Distanza a riposo', min:2, max:9, step:0.5, value:P.dist, unit:' cm', onChange(v){P.dist=v; resetWires();} }));
+  secG.add(Lab.Slider({ label:'Tensione fili', min:10, max:120, step:5, value:P.tension, unit:' N', onChange(v){P.tension=v; resetWires();} }));
+
+  const secV=Lab.Section('Visualizzazione');
+  cont.appendChild(secV.el);
+  secV.add(Lab.RadioGroup({
+    label:'Vista', options:[{value:'2d',label:'2D (sezione)'},{value:'3d',label:'3D'}],
+    value:P.view, onChange(v){P.view=v;},
+  }));
+  secV.add(Lab.Toggle({ label:'Campo magnetico B', value:P.showB, onChange(v){P.showB=v;} }));
+  secV.add(Lab.Toggle({ label:'Forza F', value:P.showForce, onChange(v){P.showForce=v;} }));
+}
+
+// ═══ Drag 3D ══════════════════════════════════════════════════════════════════
+function initDrag(canvas){
+  canvas.addEventListener('mousedown',e=>{ if(P.view==='3d'){dragging=true;lastX=e.clientX;lastY=e.clientY;canvas.style.cursor='grabbing';} });
+  window.addEventListener('mousemove',e=>{ if(!dragging)return; rotY+=(e.clientX-lastX)*0.01; rotX+=(e.clientY-lastY)*0.01; rotX=Math.max(-1.5,Math.min(1.5,rotX)); lastX=e.clientX; lastY=e.clientY; });
+  window.addEventListener('mouseup',()=>{ dragging=false; canvas.style.cursor='default'; });
+  canvas.addEventListener('touchstart',e=>{ if(P.view==='3d'){dragging=true;lastX=e.touches[0].clientX;lastY=e.touches[0].clientY;} },{passive:true});
+  canvas.addEventListener('touchmove',e=>{ if(!dragging)return; rotY+=(e.touches[0].clientX-lastX)*0.01; rotX+=(e.touches[0].clientY-lastY)*0.01; rotX=Math.max(-1.5,Math.min(1.5,rotX)); lastX=e.touches[0].clientX; lastY=e.touches[0].clientY; },{passive:true});
+  canvas.addEventListener('touchend',()=>{ dragging=false; });
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); zoom=Math.max(0.4,Math.min(3.5, zoom*(e.deltaY<0?1.12:0.89))); },{passive:false});
+}
+
+// ═══ Graph panel ══════════════════════════════════════════════════════════════
+function initGraphs(){
+  const ga=document.getElementById('graphArea');
+  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:140px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
+  const TITLES=['F/L vs distanza','F/L vs I₁·I₂','B(r) attorno al filo'];
+  for(let i=0;i<3;i++){
+    const panel=document.createElement('div');
+    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
+    const title=document.createElement('div');
+    title.textContent=TITLES[i];
+    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
+    const cv=document.createElement('canvas');
+    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
+    panel.appendChild(title); panel.appendChild(cv);
+    ga.appendChild(panel);
+    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
+  }
+}
+
+// ═══ Init ═════════════════════════════════════════════════════════════════════
+function init(){
+  Lab.initTheme();
+  buildControls();
+  initGraphs();
+
+  const simCanvas=document.getElementById('simCanvas');
+  readout=new Lab.Readout(document.getElementById('readout'),[
+    {key:'force', label:'F/L'},
+    {key:'type',  label:'Interazione'},
+    {key:'dist',  label:'Distanza'},
+    {key:'hint',  label:''},
+  ]);
+
+  document.getElementById('btnView').addEventListener('click',()=>{ P.view=P.view==='2d'?'3d':'2d'; buildControls(); });
+  document.getElementById('btnReset').addEventListener('click',()=>{
+    // mantiene la vista corrente, riavvia la simulazione
+    P.I1=10; P.I2=10; P.dist=4; P.tension=50; P.showB=true; P.showForce=true;
+    x1=-2; x2=2; v1=0; v2=0; zoom=1; buildControls();
+  });
+
+  initDrag(simCanvas);
+
+  function resize(){
+    const area=document.querySelector('.lab-canvas-area');
+    if(!area)return;
+    const ar=area.getBoundingClientRect();
+    const rb=document.getElementById('readout').getBoundingClientRect();
+    const ga=document.getElementById('graphArea');
+    const gaH=ga?ga.offsetHeight:0;
+    simCanvas.width=Math.floor(ar.width);
+    simCanvas.height=Math.max(140,Math.floor(ar.height-rb.height-gaH-4));
+    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+  }
+  resize();
+  new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
+
+  let last=performance.now();
+  function frame(now){
+    const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt;
+    T=pal();
+    physics(dt);
+    draw(simCanvas);
+    drawGraphs();
+    const F=Math.abs(forcePerLen());
+    readout.set('force', F.toExponential(2)+' N/m');
+    readout.set('type', attracting()?'attrazione':'repulsione');
+    readout.set('dist', (dNow()*100).toFixed(2)+' cm');
+    readout.set('hint', P.view==='3d'?'vista 3D':'sezione trasversale');
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('DOMContentLoaded', init);

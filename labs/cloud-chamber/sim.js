@@ -6,7 +6,7 @@ const P = {
   activity:     0.8,
   bField:       0.0,
   mistOpacity:  1.0,
-  beadOpacity:  1.5,
+  beadOpacity:  3.0,
   showLines:    false,     // sovrapposizione linee guida (giallo α, verde β)
 };
 
@@ -48,6 +48,27 @@ const RADON_CHAIN = [
   { type: 'beta',  weight: 1, mult: 1.18 },
 ];
 const RADON_W = RADON_CHAIN.reduce((s, e) => s + e.weight, 0);
+
+// Ra-226 → Rn-222 → Po-218 → Pb-214 → Bi-214 → Po-214
+// Notevole: Po-214 emette α a 7.69 MeV → traccia molto più lunga
+const RADIO_CHAIN = [
+  { type: 'alpha', weight: 4, mult: 0.92 },  // Ra-226: 4.87 MeV
+  { type: 'alpha', weight: 3, mult: 1.14 },  // Rn-222: 5.49 MeV
+  { type: 'alpha', weight: 2, mult: 1.27 },  // Po-218: 6.00 MeV
+  { type: 'beta',  weight: 2, mult: 0.60 },  // Pb-214 → Bi-214
+  { type: 'beta',  weight: 1, mult: 0.88 },  // Bi-214 → Po-214
+  { type: 'alpha', weight: 1, mult: 1.62 },  // Po-214: 7.69 MeV (traccia lunga!)
+];
+const RADIO_W = RADIO_CHAIN.reduce((s, e) => s + e.weight, 0);
+
+// U-238: α a bassa energia (4.27 MeV) → tracce corte; figlia Th-234 emette β deboli
+const URANIO_CHAIN = [
+  { type: 'alpha', weight: 5, mult: 0.80 },  // U-238: 4.27 MeV (corte)
+  { type: 'alpha', weight: 2, mult: 0.88 },  // U-235: 4.68 MeV
+  { type: 'beta',  weight: 2, mult: 0.42 },  // Th-234 → Pa-234 (β debole)
+  { type: 'beta',  weight: 1, mult: 0.30 },  // Pa-234 → U-234 (β molto debole)
+];
+const URANIO_W = URANIO_CHAIN.reduce((s, e) => s + e.weight, 0);
 
 // ── State ──────────────────────────────────────────────────────────────────────
 let beads      = [];       // nuclei condensazione tracce
@@ -102,10 +123,18 @@ function chamberMetrics(W, H) {
 
 // ── Track / bead spawning ──────────────────────────────────────────────────────
 function pickEmission() {
-  if (P.sourceType !== 'radon') return { type: P.sourceType, mult: 1.0 };
-  let r = Math.random() * RADON_W;
-  for (const e of RADON_CHAIN) { r -= e.weight; if (r <= 0) return e; }
-  return RADON_CHAIN[0];
+  const chains = {
+    radon:  [RADON_CHAIN,  RADON_W],
+    radio:  [RADIO_CHAIN,  RADIO_W],
+    uranio: [URANIO_CHAIN, URANIO_W],
+  };
+  if (chains[P.sourceType]) {
+    const [chain, W] = chains[P.sourceType];
+    let r = Math.random() * W;
+    for (const e of chain) { r -= e.weight; if (r <= 0) return e; }
+    return chain[0];
+  }
+  return { type: P.sourceType, mult: 1.0 };
 }
 
 function spawnTrack() {
@@ -583,9 +612,11 @@ function buildControls() {
   secSrc.add(Lab.RadioGroup({
     label: 'Tipo sorgente',
     options: [
-      { value: 'alpha', label: 'Alfa (α)',   hint: 'corte, spesse' },
-      { value: 'beta',  label: 'Beta (β)',   hint: 'lunghe, sottili' },
-      { value: 'radon', label: 'Radon-222',  hint: 'catena α/β' },
+      { value: 'alpha',  label: 'Alfa (α)',    hint: 'corte, spesse' },
+      { value: 'beta',   label: 'Beta (β)',    hint: 'lunghe, sottili' },
+      { value: 'radon',  label: 'Radon-222',   hint: 'catena α/β' },
+      { value: 'radio',  label: 'Radio-226',   hint: 'α vari + Po-214 lungo' },
+      { value: 'uranio', label: 'Uranio-238',  hint: 'α corte + β deboli' },
     ],
     value: P.sourceType,
     onChange(v) { P.sourceType = v; },
@@ -747,7 +778,7 @@ function init() {
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
 
-  const SRC_LABELS = { alpha: 'Alfa (α)', beta: 'Beta (β)', radon: 'Radon-222' };
+  const SRC_LABELS = { alpha: 'Alfa (α)', beta: 'Beta (β)', radon: 'Radon-222', radio: 'Radio-226', uranio: 'Uranio-238' };
   let last = performance.now();
 
   function frame(now) {
