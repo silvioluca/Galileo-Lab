@@ -1,9 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e \"const fs=require\\('fs'\\); try { new Function\\(fs.readFileSync\\('c:/Users/silvi/Documents/Workspace/Galileo-Lab/labs/doppler/sim.js','utf8'\\)\\); console.log\\('OK'\\); } catch\\(e\\) { console.error\\(e.message\\); }\")",
-      "Bash(node -e \"const fs=require\\('fs'\\); const code=fs.readFileSync\\('c:/Users/silvi/Documents/Workspace/Galileo-Lab/labs/relativity/sim.js','utf8'\\); try { new Function\\(code\\); console.log\\('OK'\\); } catch\\(e\\) { console.error\\(e.message\\); }\")",
-      "Bash(node --input-type=module)"
+      "Bash(node:*)",
+      "Bash(grep:*)",
+      "Bash(cd:*)"
     ]
   }
 }

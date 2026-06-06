@@ -141,6 +141,17 @@ Lab.RadioGroup = function ({ label, options, value, onChange }) {
   return {
     el: group,
     getValue() { return currentValue; },
+    setValue(v) {
+      currentValue = v;
+      const rows = list.querySelectorAll('.ctrl-radio-row');
+      rows.forEach(r => r.classList.remove('checked'));
+      const inputs = list.querySelectorAll('input.ctrl-radio');
+      inputs.forEach(inp => {
+        const on = inp.value === String(v);
+        inp.checked = on;
+        if (on && inp.closest) inp.closest('.ctrl-radio-row').classList.add('checked');
+      });
+    },
   };
 };
 

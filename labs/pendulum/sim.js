@@ -239,10 +239,11 @@ const ro = new ResizeObserver(() => { resizeAll(); draw(); drawGraphs(); });
 ro.observe(canvas.parentElement);
 
 /* ── Drawing: simulation canvas ──────────────────────────────── */
-// Pivot is drawn at top-centre of canvas; scene scaled to longest pendulum
+// Scala FISSA in px/metro: la lunghezza disegnata è proporzionale a L (max slider = 5 m).
+// Così modificando L cambia anche la lunghezza visibile nel canvas.
+const L_FULLSCALE = 5.0;
 function sceneScale() {
-  const maxL = Math.max(...activeInstances().map(i => i.length), 0.5);
-  return Math.min(cw, ch) * 0.38 / maxL;
+  return Math.min(ch * 0.72, cw * 0.42) / L_FULLSCALE;
 }
 function pivotX() { return cw / 2; }
 function pivotY() { return ch * 0.16; }
