@@ -2,17 +2,19 @@
 
 // ═══ Stato ════════════════════════════════════════════════════════════════════
 const P = {
-  x0: 0,  v0: 8,  a: 0,            // corpo 1
-  compare:false,                    // secondo corpo attivo
-  x02:0, v02:4, a2:0,               // corpo 2
+  x0: 0,  v0: 8,  F: 0,  m: 2,  mu: 0,    // corpo 1: forza (N), massa (kg), attrito dinamico
+  compare:false,                           // secondo corpo attivo
+  x02:0, v02:4, F2:0, m2:2, mu2:0,         // corpo 2
   strobo: true,
   speed: 1.0,
 };
 const SPAN = 100;                   // metri visibili (l'asse scorre)
 const BODY_COL = ['#ffb84d','#9b8cff'];
+const Gacc = 9.81;                  // accelerazione di gravità (per l'attrito)
 
 let tSim=0, running=false, camLeft=0;
-let bodies=[];   // [{x0,v0,a,col, x,v, ghosts:[], hist:[], ghostAcc}]
+let bodies=[];   // [{x0,v0,F,m,mu,col, x,v,a, ghosts:[], hist:[], ghostAcc}]
+let meetingsList=[], prevD=null;
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 
@@ -38,35 +40,30 @@ function pal(){
 let T=pal();
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
-function typeLabel(a){ return Math.abs(a)<1e-9 ? 'uniforme (MRU)' : 'unif. accelerato (MRUA)'; }
-
-// punti d'incontro: risolve x1(t)=x2(t) → A t² + B t + C = 0
-function meetings(){
-  if(bodies.length<2) return [];
-  const b1=bodies[0], b2=bodies[1];
-  const A=0.5*(b1.a-b2.a), B=(b1.v0-b2.v0), C=(b1.x0-b2.x0), eps=1e-6;
-  let ts=[];
-  if(Math.abs(A)<eps){
-    if(Math.abs(B)>eps) ts.push(-C/B);
-  } else {
-    const disc=B*B-4*A*C;
-    if(disc>=0){ const sq=Math.sqrt(disc); ts.push((-B+sq)/(2*A),(-B-sq)/(2*A)); }
-  }
-  const out=[];
-  for(let t of ts){
-    if(!Number.isFinite(t)||t<-eps||t>600) continue; t=Math.max(0,t);
-    if(out.some(o=>Math.abs(o.t-t)<1e-3)) continue;   // dedup (radice doppia)
-    out.push({t, x:b1.x0+b1.v0*t+0.5*b1.a*t*t});
-  }
-  return out.sort((p,q)=>p.t-q.t);
+function typeLabel(b){
+  if(b.mu>0) return 'con attrito dinamico';
+  return Math.abs(b.F)<1e-9 ? 'uniforme (MRU)' : 'unif. accelerato (MRUA)';
 }
 
+// accelerazione netta:  a = (F − F_attrito)/m ,  con l'attrito che si oppone al moto
+function accel(b){
+  const fmax=b.mu*b.m*Gacc;                       // attrito massimo
+  if(Math.abs(b.v)<1e-4){                          // da fermo: l'attrito statico tiene se |F|≤fmax
+    if(Math.abs(b.F)<=fmax) return 0;
+    return (b.F - Math.sign(b.F)*fmax)/b.m;
+  }
+  return b.F/b.m - b.mu*Gacc*Math.sign(b.v);        // in moto: attrito dinamico opposto a v
+}
+
+// punti d'incontro: rilevati numericamente (cambio di segno di x1−x2)
+function meetings(){ return meetingsList; }
+
 function reset(){
-  tSim=0; running=false;
+  tSim=0; running=false; meetingsList=[]; prevD=null;
   const defs = P.compare ? [0,1] : [0];
   bodies = defs.map(i=>{
-    const x0=i?P.x02:P.x0, v0=i?P.v02:P.v0, a=i?P.a2:P.a;
-    return { x0, v0, a, col:BODY_COL[i], x:x0, v:v0, ghosts:[], hist:[], ghostAcc:0 };
+    const x0=i?P.x02:P.x0, v0=i?P.v02:P.v0, F=i?P.F2:P.F, m=i?P.m2:P.m, mu=i?P.mu2:P.mu;
+    return { x0, v0, F, m, mu, col:BODY_COL[i], x:x0, v:v0, a:0, ghosts:[], hist:[], ghostAcc:0 };
   });
   camLeft = bodies[0].x0 - SPAN*0.45;
   const btn=document.getElementById('btnPlay'); if(btn) btn.textContent='▶  AVVIA';
@@ -76,12 +73,28 @@ function step(dt){
   if(!running) return;
   tSim+=dt;
   for(const b of bodies){
-    b.x = b.x0 + b.v0*tSim + 0.5*b.a*tSim*tSim;
-    b.v = b.v0 + b.a*tSim;
+    const a=accel(b);
+    let vNew=b.v + a*dt;
+    // arresto per attrito: se v attraversa lo zero e la forza non basta a ripartire → fermo
+    if(b.v!==0 && Math.sign(vNew)!==Math.sign(b.v)){
+      if(Math.abs(b.F)<=b.mu*b.m*Gacc+1e-9) vNew=0;
+    }
+    b.x += (b.v+vNew)*0.5*dt;        // integrazione trapezoidale
+    b.v = vNew;
+    b.a = (Math.abs(b.v)<1e-4 && accel(b)===0) ? 0 : a;
     b.hist.push({t:tSim, x:b.x, v:b.v, a:b.a});
     if(b.hist.length>2000) b.hist.shift();
     b.ghostAcc+=dt;
     while(b.ghostAcc>=0.5){ b.ghostAcc-=0.5; b.ghosts.push(b.x); if(b.ghosts.length>80) b.ghosts.shift(); }
+  }
+  // rilevazione incontri (cambio di segno di x1−x2)
+  if(bodies.length>1){
+    const d=bodies[0].x-bodies[1].x;
+    if(prevD!==null && prevD!==0 && Math.sign(d)!==Math.sign(prevD)){
+      meetingsList.push({t:tSim, x:(bodies[0].x+bodies[1].x)/2});
+      if(meetingsList.length>6) meetingsList.shift();
+    }
+    prevD=d;
   }
   if(bodies.some(b=>Math.abs(b.x)>1e5)) running=false;
 }
@@ -138,11 +151,13 @@ function draw(canvas){
   ctx.textAlign='left';
   ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
   const title = bodies.length>1
-    ? `Confronto · ① ${typeLabel(bodies[0].a)} · ② ${typeLabel(bodies[1].a)}`
-    : `Moto ${typeLabel(bodies[0].a)}`;
+    ? `Confronto · ① ${typeLabel(bodies[0])} · ② ${typeLabel(bodies[1])}`
+    : `Moto ${typeLabel(bodies[0])}`;
   ctx.fillText(title, 14, 24);
   ctx.fillStyle=T.sub; ctx.font='11px "Space Mono",monospace';
-  ctx.fillText('x = x₀ + v₀·t + ½·a·t²     v = v₀ + a·t', 14, 42);
+  const anyFric=bodies.some(b=>b.mu>0);
+  ctx.fillText(anyFric ? 'a = (F − μ·m·g·sgn v)/m     F_attr = μ·m·g'
+                       : 'a = F/m     x = x₀ + v₀·t + ½·a·t²', 14, 42);
 
   // ── punti d'incontro: solo DOPO che sono avvenuti; etichette SOTTO l'asse ──
   const mtsAll=meetings();
@@ -166,14 +181,15 @@ function draw(canvas){
     const ly=64+bi*16;
     ctx.fillStyle=b.col; ctx.beginPath(); ctx.arc(20,ly-3,5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.txt; ctx.font='10px "Space Mono",monospace';
-    ctx.fillText(`x=${b.x.toFixed(1)} m   v=${b.v.toFixed(1)} m/s   a=${b.a.toFixed(1)} m/s²`, 30, ly);
+    let s=`x=${b.x.toFixed(1)} m   v=${b.v.toFixed(1)} m/s   a=${b.a.toFixed(2)} m/s²   m=${b.m} kg`;
+    if(b.mu>0) s+=`   F_a=${(b.mu*b.m*Gacc).toFixed(1)} N`;
+    ctx.fillText(s, 30, ly);
   });
-  // riepilogo incontri (solo quelli già avvenuti)
-  if(bodies.length>1){
+  // riepilogo incontri (rilevati durante la simulazione)
+  if(bodies.length>1 && mts.length){
     const ly=64+bodies.length*16;
     ctx.fillStyle=T.accent; ctx.font='10px "Space Mono",monospace';
-    if(mts.length) ctx.fillText('Incontri: '+mts.map(mt=>`t=${mt.t.toFixed(1)}s (x=${mt.x.toFixed(1)}m)`).join('  ·  '), 20, ly);
-    else if(mtsAll.length===0) ctx.fillText('Nessun incontro', 20, ly);
+    ctx.fillText('Incontri: '+mts.map(mt=>`t=${mt.t.toFixed(1)}s (x=${mt.x.toFixed(1)}m)`).join('  ·  '), 20, ly);
   }
 }
 
@@ -258,7 +274,9 @@ function buildControls(){
   cont.appendChild(secP.el);
   secP.add(Lab.Slider({ label:'Posizione x₀', min:-50, max:90, step:1, value:P.x0, unit:' m', onChange(v){P.x0=v; reset();} }));
   secP.add(Lab.Slider({ label:'Velocità v₀', min:-20, max:20, step:0.5, value:P.v0, unit:' m/s', onChange(v){P.v0=v; reset();} }));
-  secP.add(Lab.Slider({ label:'Accelerazione a', min:-6, max:6, step:0.5, value:P.a, unit:' m/s²', onChange(v){P.a=v; reset();} }));
+  secP.add(Lab.Slider({ label:'Forza applicata F', min:-30, max:30, step:1, value:P.F, unit:' N', onChange(v){P.F=v; reset();} }));
+  secP.add(Lab.Slider({ label:'Massa m', min:0.5, max:10, step:0.5, value:P.m, unit:' kg', onChange(v){P.m=v; reset();} }));
+  secP.add(Lab.Slider({ label:'Attrito dinamico μ', min:0, max:1, step:0.05, value:P.mu, unit:'', onChange(v){P.mu=v; reset();} }));
 
   const secC=Lab.Section('Confronto');
   cont.appendChild(secC.el);
@@ -266,7 +284,9 @@ function buildControls(){
   if(P.compare){
     secC.add(Lab.Slider({ label:'Posizione x₀ (2)', min:-50, max:90, step:1, value:P.x02, unit:' m', onChange(v){P.x02=v; reset();} }));
     secC.add(Lab.Slider({ label:'Velocità v₀ (2)', min:-20, max:20, step:0.5, value:P.v02, unit:' m/s', onChange(v){P.v02=v; reset();} }));
-    secC.add(Lab.Slider({ label:'Accelerazione a (2)', min:-6, max:6, step:0.5, value:P.a2, unit:' m/s²', onChange(v){P.a2=v; reset();} }));
+    secC.add(Lab.Slider({ label:'Forza applicata F (2)', min:-30, max:30, step:1, value:P.F2, unit:' N', onChange(v){P.F2=v; reset();} }));
+    secC.add(Lab.Slider({ label:'Massa m (2)', min:0.5, max:10, step:0.5, value:P.m2, unit:' kg', onChange(v){P.m2=v; reset();} }));
+    secC.add(Lab.Slider({ label:'Attrito dinamico μ (2)', min:0, max:1, step:0.05, value:P.mu2, unit:'', onChange(v){P.mu2=v; reset();} }));
   }
 
   const secV=Lab.Section('Visualizzazione');

@@ -670,6 +670,24 @@ const LABS = [
     icon: '⛲',
     url: 'labs/efflux/',
   },
+  {
+    id: 'pascal',
+    name: 'Principio di Pascal',
+    desc: 'La pressione applicata a un fluido confinato si trasmette inalterata in ogni punto e in ogni direzione. Tre apparecchi storici: la sfera forata (l\'acqua spruzza con la stessa intensità da tutti i fori), il martinetto idraulico (p = F₁/A₁ = F₂/A₂, con moltiplicazione della forza F₂ = F₁·A₂/A₁ a spese dello spostamento e conservazione del lavoro), e la botte di Pascal (una colonna d\'acqua alta e sottile genera p = ρ·g·h sufficiente a far scoppiare la botte, indipendentemente dalla poca acqua usata). Varia pressione, numero di fori, forza, raggi dei pistoni, altezza e sezione del tubo, soglia di rottura. Grafici dedicati per ciascuna modalità.',
+    topic: 'fluidi',
+    status: 'beta',
+    icon: '🛢️',
+    url: 'labs/pascal/',
+  },
+  {
+    id: 'archimede',
+    name: 'Principio di Archimede',
+    desc: 'Un corpo immerso in un fluido riceve una spinta verso l\'alto pari al peso del fluido spostato: S = ρ_fluido·g·V_immerso. Confronta peso e spinta con frecce proporzionali e scopri la condizione di galleggiamento: il corpo galleggia se ρ_oggetto < ρ_fluido, immergendosi della frazione ρ_oggetto/ρ_fluido, affonda se è più denso, resta in equilibrio indifferente se uguale. Scegli la forma — cubo, sfera, iceberg (di cui emerge solo la punta) o pallone a pareti elastiche, che la pressione comprime via via che scende in profondità riducendone il volume e la spinta (instabilità del sommozzatore cartesiano). Varia densità e dimensione dell\'oggetto e il fluido (acqua, acqua salata, alcol, olio, glicerina, mercurio: il ferro galleggia sul mercurio!). Rilascia o trascina l\'oggetto per vederlo oscillare e assestarsi. Grafici di spinta/peso, densità a confronto e dinamica.',
+    topic: 'fluidi',
+    status: 'beta',
+    icon: '🛟',
+    url: 'labs/archimede/',
+  },
 ];
 
 let activeFilter = 'all';
