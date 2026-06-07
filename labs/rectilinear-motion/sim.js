@@ -2,7 +2,7 @@
 
 // ═══ Stato ════════════════════════════════════════════════════════════════════
 const P = {
-  x0: 5,  v0: 8,  a: -2,            // corpo 1
+  x0: 0,  v0: 8,  a: 0,            // corpo 1
   compare:false,                    // secondo corpo attivo
   x02:0, v02:4, a2:0,               // corpo 2
   strobo: true,

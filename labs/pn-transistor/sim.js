@@ -4,16 +4,22 @@
 const P = {
   mode:'junction',     // 'doping' | 'junction' | 'transistor'
   dope:'n',            // drogaggio: 'n' | 'p'
-  conc:5,              // concentrazione droganti (rel.)
+  dopElem:'P',         // elemento drogante
   V:0.0,               // tensione di polarizzazione giunzione (V)
   Ib:20,               // corrente di base transistor (µA)
   btype:'npn',         // 'npn' | 'pnp'
   paused:false,
 };
 const VT=0.02585, VBI=0.7, BETA=120;   // tensione termica, potenziale di built-in, guadagno β
+// droganti: pentavalenti (n, +5) e trivalenti (p, +3)
+const DOP = {
+  n:{ P:'Fosforo (P)', As:'Arsenico (As)', Sb:'Antimonio (Sb)' },
+  p:{ B:'Boro (B)', Al:'Alluminio (Al)', Ga:'Gallio (Ga)', In:'Indio (In)' },
+};
 
 let tAnim=0, last=0, spawnAcc=0, eFlow=0;
 let parts=[];   // portatori mobili {x,y,vx,vy,kind:'e'|'h', t}
+let freeC=null, inited=false;   // portatore del dopante (elettrone libero / lacuna) nel reticolo
 let gCanvas=[null,null,null], gCtx=[null,null,null], gTitle=[null,null,null];
 let readout;
 
@@ -63,11 +69,10 @@ function geom(W,H){
 // ═══ Portatori ════════════════════════════════════════════════════════════════
 function spawnIn(x0,x1,kind){ return {x:x0+Math.random()*(x1-x0), y:G.y0+8+Math.random()*(G.y1-G.y0-16), vx:(Math.random()-0.5)*1.6, vy:(Math.random()-0.5)*1.6, kind, t:0}; }
 function initSim(){
-  parts=[]; spawnAcc=0;
+  parts=[]; spawnAcc=0; freeC=null; inited=true;
   if(!G.W) return;
   if(P.mode==='doping'){
-    const kind=P.dope==='n'?'e':'h', n=Math.round(10+P.conc*6);
-    for(let i=0;i<n;i++) parts.push(spawnIn(G.x0,G.x1,kind));
+    freeC={x:(G.x0+G.x1)/2+30, y:(G.y0+G.y1)/2, vx:(Math.random()-0.5)*2, vy:(Math.random()-0.5)*2};
   } else if(P.mode==='junction'){
     for(let i=0;i<26;i++) parts.push(spawnIn(G.x0,G.jx,'h'));     // lacune in p (sinistra)
     for(let i=0;i<26;i++) parts.push(spawnIn(G.jx,G.x1,'e'));     // elettroni in n (destra)
@@ -80,9 +85,8 @@ function initSim(){
 function step(dt){
   if(P.paused) return;
   if(G.W) geom(G.W,G.H);
-  if(!parts.length) initSim();
+  if(!inited) initSim();
   const dtf=Math.min(dt,0.05)*60;
-  tAnim+=0; // (tAnim aggiornato nel frame)
   if(P.mode==='doping') stepDoping(dtf);
   else if(P.mode==='junction') stepJunction(dtf);
   else stepTransistor(dtf);
@@ -93,7 +97,15 @@ function jitter(p,dtf,x0,x1){
   if(p.x<x0+4){p.x=x0+4;p.vx=Math.abs(p.vx);} if(p.x>x1-4){p.x=x1-4;p.vx=-Math.abs(p.vx);}
   if(p.y<G.y0+5){p.y=G.y0+5;p.vy=Math.abs(p.vy);} if(p.y>G.y1-5){p.y=G.y1-5;p.vy=-Math.abs(p.vy);}
 }
-function stepDoping(dtf){ for(const p of parts) jitter(p,dtf,G.x0,G.x1); }
+function stepDoping(dtf){
+  if(!freeC){ freeC={x:(G.x0+G.x1)/2+30,y:(G.y0+G.y1)/2,vx:1,vy:0.6}; return; }
+  const m=(P.dope==='n'?1.0:0.6);   // elettrone libero più mobile della lacuna
+  if(Math.random()<0.05*dtf){ freeC.vx=(Math.random()-0.5)*2.4; freeC.vy=(Math.random()-0.5)*2.4; }
+  freeC.x+=freeC.vx*m*dtf; freeC.y+=freeC.vy*m*dtf;
+  const x0=G.x0+34,x1=G.x1-34,y0=G.y0+16,y1=G.y1-12;
+  if(freeC.x<x0){freeC.x=x0;freeC.vx=Math.abs(freeC.vx);} if(freeC.x>x1){freeC.x=x1;freeC.vx=-Math.abs(freeC.vx);}
+  if(freeC.y<y0){freeC.y=y0;freeC.vy=Math.abs(freeC.vy);} if(freeC.y>y1){freeC.y=y1;freeC.vy=-Math.abs(freeC.vy);}
+}
 
 function stepJunction(dtf){
   const W=deplW(P.V), half=(G.x1-G.x0)*0.10*W;   // mezza larghezza svuotamento (px)
@@ -145,10 +157,10 @@ function arrow(ctx,x1,y1,x2,y2,col,lw){
 }
 function carrier(ctx,p){
   if(p.kind==='e'){ ctx.fillStyle=rgb(T.elec); ctx.beginPath(); ctx.arc(p.x,p.y,3.4,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#fff'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('−',p.x,p.y+0.5); }
-  else { ctx.fillStyle=rgb(T.hole); ctx.beginPath(); ctx.arc(p.x,p.y,3.4,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#fff'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('+',p.x,p.y+0.5); }
-  ctx.textBaseline='alphabetic';
+    ctx.fillStyle='#fff'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('−',p.x,p.y+0.5); ctx.textBaseline='alphabetic'; }
+  else { // lacuna: cerchio VUOTO con circonferenza tratteggiata
+    ctx.strokeStyle=rgb(T.hole); ctx.lineWidth=1.5; ctx.setLineDash([2,2]);
+    ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); }
 }
 function fixedIons(ctx,x0,x1,sign,col){
   const n=Math.round((x1-x0)/40), rows=2;
@@ -168,22 +180,51 @@ function draw(canvas){
   else drawTransistor(ctx);
 }
 
+function crystal(){
+  const cols=5, rows=3, mx=G.x0+50, Mx=G.x1-50, my=G.y0+24, My=G.y1-16;
+  const dx=(Mx-mx)/(cols-1), dy=(My-my)/(rows-1), r=clamp(Math.min(dx*0.20,dy*0.30),12,18);
+  const atoms=[]; for(let rr=0;rr<rows;rr++) for(let c=0;c<cols;c++) atoms.push({x:mx+c*dx,y:my+rr*dy,r});
+  return {atoms, cols, rows, dx, dy, dop: Math.floor(rows/2)*cols+Math.floor(cols/2)};
+}
+function drawBond(ctx,a,b){
+  const mx=(a.x+b.x)/2,my=(a.y+b.y)/2, dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1, px=-dy/len,py=dx/len, off=Math.min(7,len*0.10);
+  ctx.strokeStyle=dk()?'rgba(210,220,235,0.6)':'rgba(40,55,80,0.65)'; ctx.lineWidth=1.2;
+  for(const s of [1,-1]){ ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.quadraticCurveTo(mx+px*off*s,my+py*off*s,b.x,b.y); ctx.stroke(); }
+  ctx.fillStyle=dk()?'#e8edf5':'#16233c';   // elettroni di legame (condivisi)
+  for(const f of [0.36,0.64]){ ctx.beginPath(); ctx.arc(a.x+dx*f, a.y+dy*f, 2.4,0,Math.PI*2); ctx.fill(); }
+}
+function drawAtom(ctx,a,label,isDop){
+  ctx.fillStyle=dk()?'#0b1018':'#ffffff'; ctx.beginPath(); ctx.arc(a.x,a.y,a.r,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle=isDop?rgb(T.accent):(dk()?'rgba(220,228,240,0.85)':'rgba(40,55,80,0.85)'); ctx.lineWidth=isDop?2.2:1.4; ctx.stroke();
+  ctx.fillStyle=isDop?rgb(T.accent):T.txt; ctx.font='bold '+Math.round(a.r*0.72)+'px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(label,a.x,a.y); ctx.textBaseline='alphabetic';
+}
 function drawDoping(ctx){
-  const nType=P.dope==='n';
-  ctx.fillStyle=nType?T.nreg:T.preg; roundRect(ctx,G.x0,G.y0,G.x1-G.x0,G.y1-G.y0,10); ctx.fill();
-  ctx.strokeStyle=T.edge; ctx.lineWidth=1.5; ctx.stroke();
-  // ioni droganti fissi
-  fixedIons(ctx,G.x0,G.x1, nType?'+':'−', nType?T.donor:T.accept);
-  // portatori maggioritari mobili
-  for(const p of parts) carrier(ctx,p);
+  const nType=P.dope==='n', cr=crystal();
+  // legami covalenti (verso destra e verso il basso)
+  for(let r=0;r<cr.rows;r++) for(let c=0;c<cr.cols;c++){ const i=r*cr.cols+c;
+    if(c<cr.cols-1) drawBond(ctx,cr.atoms[i],cr.atoms[i+1]);
+    if(r<cr.rows-1) drawBond(ctx,cr.atoms[i],cr.atoms[i+cr.cols]);
+  }
+  // atomi (host +4, dopante +5/+3)
+  for(let i=0;i<cr.atoms.length;i++) drawAtom(ctx,cr.atoms[i], i===cr.dop?(nType?'+5':'+3'):'+4', i===cr.dop);
+  // elettrone libero (N) o lacuna (P): cerchio tratteggiato + etichetta con leader
+  if(freeC){
+    if(nType){
+      ctx.fillStyle=rgb(T.elec); ctx.beginPath(); ctx.arc(freeC.x,freeC.y,4.5,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle=rgb(T.elec); ctx.lineWidth=1.4; ctx.setLineDash([3,2]); ctx.beginPath(); ctx.arc(freeC.x,freeC.y,9.5,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    } else {
+      ctx.strokeStyle=rgb(T.hole); ctx.lineWidth=1.6; ctx.setLineDash([3,2]);
+      ctx.beginPath(); ctx.arc(freeC.x,freeC.y,9.5,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(freeC.x,freeC.y,4.5,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.strokeStyle=T.sub; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(freeC.x,freeC.y-11); ctx.lineTo(freeC.x+16,G.y0-4); ctx.stroke();
+    ctx.fillStyle=nType?rgb(T.elec):rgb(T.hole); ctx.font='10px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText(nType?'elettrone libero':'lacuna', freeC.x+18, G.y0-4);
+  }
   // intestazione
   ctx.textAlign='left'; ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
-  ctx.fillText(nType?'Semiconduttore drogato n':'Semiconduttore drogato p', 14, 24);
+  ctx.fillText(nType?'Drogaggio N — drogante pentavalente (+5)':'Drogaggio P — drogante trivalente (+3)', 14, 24);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(nType? 'donatori (+) fissi · elettroni (−) mobili = maggioritari'
-                    : 'accettori (−) fissi · lacune (+) mobili = maggioritari', 14, 40);
-  ctx.fillStyle=T.sub; ctx.textAlign='center'; ctx.font='bold 11px "Space Mono",monospace';
-  ctx.fillText(nType?'TIPO  n':'TIPO  p', (G.x0+G.x1)/2, G.y1+18);
+  ctx.fillText('Reticolo di Silicio (+4) · drogante: '+DOP[P.dope][P.dopElem]+(nType?' → 1 elettrone in più (libero)':' → 1 legame mancante (lacuna)'), 14, 40);
 }
 
 function drawJunction(ctx){
@@ -353,8 +394,11 @@ function buildControls(){
     value:P.mode, onChange(v){ if(v===P.mode)return; P.mode=v; setTitles(); initSim(); buildReadout(); reControls(); } }));
   if(P.mode==='doping'){
     const s=Lab.Section('Drogaggio'); cont.appendChild(s.el);
-    s.add(Lab.RadioGroup({ label:'Tipo di drogante', options:[{value:'n',label:'Tipo n (donatori)'},{value:'p',label:'Tipo p (accettori)'}], value:P.dope, onChange(v){ P.dope=v; initSim(); } }));
-    s.add(Lab.Slider({ label:'Concentrazione', min:1, max:10, step:1, value:P.conc, unit:'·10¹⁶', onChange(v){ P.conc=v; initSim(); } }));
+    s.add(Lab.RadioGroup({ label:'Tipo', options:[{value:'n',label:'Tipo n (pentavalente)'},{value:'p',label:'Tipo p (trivalente)'}],
+      value:P.dope, onChange(v){ P.dope=v; P.dopElem=Object.keys(DOP[v])[0]; initSim(); reControls(); } }));
+    const se=Lab.Section('Elemento drogante'); cont.appendChild(se.el);
+    se.add(Lab.RadioGroup({ label:P.dope==='n'?'pentavalenti (+5)':'trivalenti (+3)',
+      options:Object.keys(DOP[P.dope]).map(k=>({value:k,label:DOP[P.dope][k]})), value:P.dopElem, onChange(v){ P.dopElem=v; } }));
   } else if(P.mode==='junction'){
     const s=Lab.Section('Polarizzazione'); cont.appendChild(s.el);
     s.add(Lab.Slider({ label:'Tensione V', min:-1, max:0.8, step:0.02, value:P.V, unit:' V', onChange(v){ P.V=v; } }));
@@ -366,7 +410,7 @@ function buildControls(){
 }
 function buildReadout(){
   const el=document.getElementById('readout'); el.innerHTML='';
-  const f = P.mode==='doping' ? [{key:'tipo',label:'Tipo'},{key:'fissi',label:'Ioni fissi'},{key:'mob',label:'Maggioritari'},{key:'conc',label:'Concentrazione'}]
+  const f = P.mode==='doping' ? [{key:'tipo',label:'Tipo'},{key:'elem',label:'Drogante'},{key:'val',label:'Valenza'},{key:'mob',label:'Portatore'}]
     : P.mode==='junction' ? [{key:'v',label:'Tensione'},{key:'stato',label:'Stato'},{key:'w',label:'Larghezza svuot.'},{key:'i',label:'Corrente (rel.)'},{key:'vbi',label:'Barriera'}]
     : [{key:'ib',label:'I_B'},{key:'ic',label:'I_C'},{key:'beta',label:'Guadagno β'},{key:'tipo',label:'Tipo'}];
   readout=new Lab.Readout(el,f);
@@ -393,7 +437,7 @@ function init(){
   buildControls(); initGraphs(); buildReadout();
   const simCanvas=document.getElementById('simCanvas');
   document.getElementById('btnMode').addEventListener('click',()=>{ P.mode = P.mode==='doping'?'junction':P.mode==='junction'?'transistor':'doping'; setTitles(); initSim(); buildReadout(); buildControls(); });
-  document.getElementById('btnReset').addEventListener('click',()=>{ P.mode='junction'; P.dope='n'; P.conc=5; P.V=0; P.Ib=20; P.btype='npn'; P.paused=false; buildControls(); buildReadout(); setTitles(); initSim(); });
+  document.getElementById('btnReset').addEventListener('click',()=>{ P.mode='junction'; P.dope='n'; P.dopElem='P'; P.V=0; P.Ib=20; P.btype='npn'; P.paused=false; buildControls(); buildReadout(); setTitles(); initSim(); });
 
   function resize(){
     const area=document.querySelector('.lab-canvas-area'); if(!area)return;
@@ -404,7 +448,7 @@ function init(){
     simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
     simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
     geom(simCanvas.width,simCanvas.height);
-    if(!parts.length) initSim();
+    if(!inited) initSim();
     for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
   }
   resize();
@@ -420,8 +464,10 @@ function init(){
     try{
       step(dt); draw(simCanvas); drawGraphs();
       if(P.mode==='doping'){
-        readout.set('tipo', P.dope==='n'?'n':'p'); readout.set('fissi', P.dope==='n'?'donatori (+)':'accettori (−)');
-        readout.set('mob', P.dope==='n'?'elettroni (−)':'lacune (+)'); readout.set('conc', P.conc+'·10¹⁶ cm⁻³');
+        readout.set('tipo', P.dope==='n'?'n (donatore)':'p (accettore)');
+        readout.set('elem', DOP[P.dope][P.dopElem]);
+        readout.set('val', P.dope==='n'?'+5 (pentavalente)':'+3 (trivalente)');
+        readout.set('mob', P.dope==='n'?'elettrone libero':'lacuna');
       } else if(P.mode==='junction'){
         readout.set('v', P.V.toFixed(2)+' V');
         readout.set('stato', P.V>0.05?'diretta':(P.V<-0.05?'inversa':'equilibrio'));

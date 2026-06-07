@@ -149,15 +149,6 @@ const LABS = [
     url: 'labs/collisions/',
   },
   {
-    id: 'communicating-vessels',
-    name: 'Vasi Comunicanti',
-    desc: 'Visualizza il principio dei vasi comunicanti con fluidi di densità diverse e geometrie variabili.',
-    topic: 'fluidi',
-    status: 'soon',
-    icon: '🧪',
-    url: null,
-  },
-  {
     id: 'wind-tunnel',
     name: 'Galleria del Vento',
     desc: 'Simula il flusso di un fluido intorno a un profilo alare con il metodo Lattice Boltzmann D2Q9. Posiziona e ruota il profilo, varia la velocità e la viscosità, osserva vorticità, scia di von Kármán e la distribuzione del coefficiente di pressione Cp.',
@@ -643,9 +634,46 @@ const LABS = [
     icon: '🧲',
     url: 'labs/lorentz/',
   },
+  {
+    id: 'skin-effect',
+    name: 'Effetto Pelle',
+    desc: 'Simula l\'effetto pelle nei conduttori percorsi da corrente alternata: la densità di corrente si addensa verso la superficie e la profondità di penetrazione δ = 1/√(π·f·μ·σ) diminuisce con la frequenza. Visualizza la sezione del filo colorata per densità di corrente con l\'anello di δ, la vista longitudinale, e calcola l\'aumento di resistenza R_ac/R_dc. Varia frequenza, materiale (Cu, Al, Ag, Au, Fe ferromagnetico) e raggio. Grafici J(r), δ(f) e R_ac/R_dc(f).',
+    topic: 'elettromagnetismo',
+    status: 'beta',
+    icon: '📡',
+    url: 'labs/skin-effect/',
+  },
+  {
+    id: 'communicating-vessels',
+    name: 'Vasi Comunicanti',
+    desc: 'Un liquido versato in recipienti di forma diversa connessi alla base raggiunge lo stesso livello in tutti, indipendentemente dalla forma e dalla sezione (legge di Stevino, p = ρgh). Modalità tubo a U con due liquidi immiscibili: all\'equilibrio ρ_A·h_A = ρ_B·h_B e il liquido meno denso forma la colonna più alta (principio del manometro). Varia liquido, quantità e densità; grafici di pressione, volume per vaso e bilancio ρ·h.',
+    topic: 'fluidi',
+    status: 'beta',
+    icon: '🚰',
+    url: 'labs/communicating-vessels/',
+  },
+  {
+    id: 'torricelli',
+    name: 'Esperimento di Torricelli',
+    desc: 'Il barometro a mercurio di Torricelli: un tubo chiuso in alto (vuoto torricelliano) capovolto in una bacinella, in cui la colonna di liquido sale finché la pressione atmosferica eguaglia quella della colonna: p₀ = ρ·g·h, da cui h = p₀/(ρg) ≈ 76 cm di mercurio a 1 atm. Varia la pressione atmosferica e il liquido (mercurio, acqua, glicerina, olio) e osserva la colonna, la scala graduata e le frecce di pressione. Grafici h(p₀), altezza per liquido e pressione in funzione della quota.',
+    topic: 'fluidi',
+    status: 'beta',
+    icon: '📏',
+    url: 'labs/torricelli/',
+  },
+  {
+    id: 'efflux',
+    name: 'Teorema di Torricelli',
+    desc: 'Efflusso di un liquido da un foro sulla parete laterale di un recipiente: la velocità di uscita vale v = √(2·g·h), come quella di un grave caduto dall\'altezza h del pelo libero sul foro. Il getto descrive una parabola e la gittata 2·√(h·y) è massima per un foro a metà altezza; due fori simmetrici rispetto al centro arrivano alla stessa distanza. Varia la forma della sezione (rettangolo, trapezio, trapezio rovesciato), la quantità d\'acqua, la posizione e l\'apertura del foro, con rifornimento continuo o svuotamento nel tempo. Modalità confronto con un secondo foro. Grafici v(h), gittata(y) e svuotamento livello(t).',
+    topic: 'fluidi',
+    status: 'beta',
+    icon: '⛲',
+    url: 'labs/efflux/',
+  },
 ];
 
 let activeFilter = 'all';
+let searchQuery = '';
 
 function renderFilters() {
   const container = document.getElementById('filters');
@@ -658,63 +686,98 @@ function renderFilters() {
       activeFilter = t.id;
       document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
-      filterCards();
+      applyFilter();
     });
     container.appendChild(btn);
   });
 }
 
-function filterCards() {
-  const cards = document.querySelectorAll('.app-card');
-  let visible = 0;
-  cards.forEach(card => {
-    const match = activeFilter === 'all' || card.dataset.topic === activeFilter;
-    card.classList.toggle('hidden', !match);
-    if (match) visible++;
+function makeCard(lab) {
+  const card = document.createElement(lab.url ? 'a' : 'div');
+  if (lab.url) card.href = lab.url;
+  card.className = 'app-card';
+  card.dataset.topic = lab.topic;
+  card.dataset.status = lab.status;
+  const topicLabel = TOPICS.find(t => t.id === lab.topic)?.label || '';
+  card.dataset.search = (lab.name + ' ' + lab.desc + ' ' + topicLabel).toLowerCase();
+
+  const statusLabel = { stable: 'Stabile', beta: 'Beta', soon: 'Presto' }[lab.status];
+  const statusDot = lab.status !== 'soon' ? `<span class="status-dot"></span>` : '';
+
+  card.innerHTML = `
+    <div class="card-top">
+      <div class="app-icon"><span class="icon-emoji">${lab.icon}</span></div>
+      <div class="card-badges">
+        <span class="tag tag-${lab.topic}">${topicLabel}</span>
+        <span class="tag tag-${lab.status}">${statusDot}${statusLabel}</span>
+      </div>
+    </div>
+    <div class="app-name">${lab.name}</div>
+    <div class="app-desc">${lab.desc}</div>
+    <div class="card-footer">
+      <span class="app-url">${lab.url ? 'labs/' + lab.id + '/' : '— prossimamente'}</span>
+      ${lab.url ? '<span class="card-arrow">→</span>' : ''}
+    </div>
+  `;
+  return card;
+}
+
+// Raggruppa le card per argomento (una sezione per topic, nell'ordine di TOPICS)
+function renderGroups() {
+  const root = document.getElementById('appGroups');
+  root.innerHTML = '';
+  TOPICS.filter(t => t.id !== 'all').forEach(t => {
+    const labs = LABS.filter(l => l.topic === t.id);
+    if (!labs.length) return;
+    const sec = document.createElement('section');
+    sec.className = 'topic-group';
+    sec.dataset.topic = t.id;
+    const head = document.createElement('div');
+    head.className = 'group-head';
+    head.innerHTML = `<span class="group-title">${t.label}</span><span class="group-count">${labs.length}</span>`;
+    sec.appendChild(head);
+    const grid = document.createElement('div');
+    grid.className = 'app-grid';
+    labs.forEach(lab => grid.appendChild(makeCard(lab)));
+    sec.appendChild(grid);
+    root.appendChild(sec);
+  });
+}
+
+function applyFilter() {
+  const q = searchQuery.trim().toLowerCase();
+  let totalVisible = 0;
+  document.querySelectorAll('.topic-group').forEach(group => {
+    let visible = 0;
+    group.querySelectorAll('.app-card').forEach(card => {
+      const topicMatch = activeFilter === 'all' || card.dataset.topic === activeFilter;
+      const qMatch = !q || (card.dataset.search || '').includes(q);
+      const show = topicMatch && qMatch;
+      card.classList.toggle('hidden', !show);
+      if (show) visible++;
+    });
+    group.classList.toggle('hidden', visible === 0);
+    totalVisible += visible;
   });
 
-  let empty = document.querySelector('.empty-state');
-  if (visible === 0) {
+  const root = document.getElementById('appGroups');
+  let empty = root.querySelector('.empty-state');
+  if (totalVisible === 0) {
     if (!empty) {
       empty = document.createElement('div');
       empty.className = 'empty-state';
-      empty.textContent = 'Nessun esperimento in questa categoria.';
-      document.getElementById('appGrid').appendChild(empty);
+      root.appendChild(empty);
     }
+    empty.textContent = q ? `Nessun esperimento per “${searchQuery.trim()}”.` : 'Nessun esperimento in questa categoria.';
   } else if (empty) {
     empty.remove();
   }
 }
 
-function renderCards() {
-  const grid = document.getElementById('appGrid');
-  LABS.forEach(lab => {
-    const card = document.createElement(lab.url ? 'a' : 'div');
-    if (lab.url) card.href = lab.url;
-    card.className = 'app-card';
-    card.dataset.topic = lab.topic;
-    card.dataset.status = lab.status;
-
-    const statusLabel = { stable: 'Stabile', beta: 'Beta', soon: 'Presto' }[lab.status];
-    const statusDot = lab.status !== 'soon' ? `<span class="status-dot"></span>` : '';
-
-    card.innerHTML = `
-      <div class="card-top">
-        <div class="app-icon"><span class="icon-emoji">${lab.icon}</span></div>
-        <div class="card-badges">
-          <span class="tag tag-${lab.topic}">${TOPICS.find(t => t.id === lab.topic)?.label}</span>
-          <span class="tag tag-${lab.status}">${statusDot}${statusLabel}</span>
-        </div>
-      </div>
-      <div class="app-name">${lab.name}</div>
-      <div class="app-desc">${lab.desc}</div>
-      <div class="card-footer">
-        <span class="app-url">${lab.url ? 'labs/' + lab.id + '/' : '— prossimamente'}</span>
-        ${lab.url ? '<span class="card-arrow">→</span>' : ''}
-      </div>
-    `;
-    grid.appendChild(card);
-  });
+function initSearch() {
+  const input = document.getElementById('searchInput');
+  if (!input) return;
+  input.addEventListener('input', () => { searchQuery = input.value; applyFilter(); });
 }
 
 function initTheme() {
@@ -728,5 +791,6 @@ function initTheme() {
 }
 
 renderFilters();
-renderCards();
+renderGroups();
+initSearch();
 initTheme();
